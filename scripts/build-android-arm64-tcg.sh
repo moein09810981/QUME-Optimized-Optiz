@@ -34,7 +34,7 @@ cd "$BUILD_DIR"
 "$ROOT/configure" \
     --target-list=x86_64-softmmu \
     --enable-tcg \
-    --enable-lto \
+    -Db_lto=true \
     --disable-docs \
     --disable-werror \
     --extra-cflags="$EXTRA_CFLAGS"
