@@ -34,6 +34,7 @@ cd "$BUILD_DIR"
 "$ROOT/configure" \
     --target-list=x86_64-softmmu \
     --enable-tcg \
+    -Dbuildtype=release \
     -Db_lto=true \
     --disable-docs \
     --disable-werror \
