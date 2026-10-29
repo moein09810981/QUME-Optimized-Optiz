@@ -3,7 +3,7 @@
 ## Target and non-goals
 
 Target host: Android 16 on an ARM64 phone (Poco M6 class device).
-Target guest: x86-64 Windows using QEMU system emulation.
+Current temporary target guest: a lightweight x86-64 Linux system using QEMU system emulation. Windows is not the current milestone; the host-side QEMU optimization work should remain reusable for it later.
 Initial accelerator: TCG. Ordinary ARM64 KVM does not execute an x86-64 guest natively; do not assume `-accel kvm` is available for this host/guest pairing.
 
 This work is focused on the QEMU source tree itself. It does not modify or integrate the PocketVM Android app.
@@ -37,7 +37,7 @@ Record these before performance patches:
 - Android version, SoC/CPU details, RAM, and available storage;
 - compiler/NDK versions and build flags;
 - whether the binary launches and which machine/device models work;
-- guest configuration (vCPU count, RAM, disk image, display, and devices);
+- guest configuration (vCPU count, RAM, lightweight Linux image, display mode, and devices);
 - cold-start time, boot-to-login time, idle CPU use, guest workload throughput, and memory use;
 - at least five repeated runs where practical, with warm-up and thermal notes.
 
@@ -58,7 +58,7 @@ Do not add `--enable-kvm` for x86-64-on-ARM64 expecting native execution. Do not
 
 PGO is a later experiment, after a working baseline build and a repeatable workload exist. First verify that the selected Clang/LLVM version and this QEMU revision support the intended profile-generation mode. Clang instrumentation-based PGO commonly uses `-fprofile-instr-generate`, `LLVM_PROFILE_FILE`, and `llvm-profdata merge`, followed by a separate profile-use build. Do not mix GCC's `-fprofile-generate/-fprofile-use` workflow into a Clang build without checking compiler support.
 
-The training run must exercise the same kind of guest workload that matters for the user. A profile from a trivial boot or an unrelated host workload may optimize the wrong paths. Keep generation and use builds in separate build directories and preserve the baseline.
+For the current milestone, the training run must exercise the lightweight Linux guest workload that matters for the user. A profile from a trivial boot or an unrelated host workload may optimize the wrong paths. Keep generation and use builds in separate build directories and preserve the baseline.
 
 ### Compiler and code-size experiments
 
@@ -71,8 +71,8 @@ BOLT is optional and only worth attempting after a working executable, represent
 ### Stage 0 — Source and build reconnaissance
 Confirm the upstream commit, available host/target combinations, Android NDK/Bionic constraints, and a minimal x86_64-softmmu build configuration. Do not alter emulator semantics.
 
-### Stage 1 — Reproducible build and smoke tests
-Establish a repeatable ARM64 Android-host build path. Confirm the resulting executable's host architecture, run QEMU help/version output, and run the smallest feasible headless guest smoke test.
+### Stage 1 — Reproducible build and lightweight Linux smoke test
+Establish a repeatable ARM64 Android-host build path. Confirm the resulting executable's host architecture, run QEMU help/version output, and boot a minimal x86-64 Linux guest headlessly before adding a graphical desktop. Keep the guest image separate from the QEMU source/build tree.
 
 ### Stage 2 — Profiling
 Use `simpleperf` or another profiler that is actually supported on the device to identify time spent in TCG execution, memory translation, and device emulation. Root-only tools and host Linux perf workflows may not be available on ordinary Android. If profiling on-device is unavailable, state that limitation and avoid drawing performance conclusions from desktop-only profiles.
@@ -93,6 +93,6 @@ Run relevant QEMU tests and guest smoke tests, then repeat the identical benchma
 - [x] Added a configurable Release/LTO build script and optional lean-device experiment.
 - [x] Documented the PGO and profiling workflow.
 - [ ] Establish and verify an Android ARM64 host build.
-- [ ] Capture baseline results on the target phone.
+- [ ] Capture baseline results on the target phone using a lightweight x86-64 Linux guest.
 - [ ] Run PGO using a representative guest workload.
 - [ ] Profile and land measured source-level optimizations.
