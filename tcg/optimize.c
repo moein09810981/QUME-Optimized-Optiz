@@ -1900,6 +1900,7 @@ static bool fold_deposit(OptContext *ctx, TCGOp *op)
 static bool fold_shift(OptContext *ctx, TCGOp *op);
 static bool fold_neg(OptContext *ctx, TCGOp *op);
 static bool fold_sub(OptContext *ctx, TCGOp *op);
+static bool fold_mul_highpart(OptContext *ctx, TCGOp *op);
 
 /*
  * Generate libdivide-style unsigned magic for a constant divisor.
