@@ -2067,6 +2067,50 @@ static bool fold_divu_magic(OptContext *ctx, TCGOp *op, uint64_t divisor)
 }
 
 /*
+ * If |d| > 2^(bits-2), a signed quotient can only be -1, 0, or 1.
+ * Two signed comparisons and one subtraction are cheaper than a
+ * multiply-high reciprocal sequence for this range.
+ */
+static bool fold_divs_large(OptContext *ctx, TCGOp *op, uint64_t divisor)
+{
+    unsigned bits = tcg_type_bits(ctx->type);
+    uint64_t type_mask = MAKE_64BIT_MASK(0, bits);
+    uint64_t d = divisor & type_mask;
+    bool negative = (d >> (bits - 1)) != 0;
+    uint64_t magnitude = negative ? (0 - d) & type_mask : d;
+    TCGArg x = op->args[1];
+    TCGArg positive, negative_result;
+    TCGOp *op2;
+
+    if (magnitude <= (UINT64_C(1) << (bits - 2)) ||
+        is_power_of_2(magnitude)) {
+        return false;
+    }
+
+    positive = arg_new_temp(ctx);
+    negative_result = arg_new_temp(ctx);
+
+    op2 = opt_insert_before(ctx, op, INDEX_op_setcond, 4);
+    op2->args[0] = positive;
+    op2->args[1] = x;
+    op2->args[2] = arg_new_constant(ctx, magnitude);
+    op2->args[3] = TCG_COND_GE;
+    fold_setcond(ctx, op2);
+
+    op2 = opt_insert_before(ctx, op, INDEX_op_setcond, 4);
+    op2->args[0] = negative_result;
+    op2->args[1] = x;
+    op2->args[2] = arg_new_constant(ctx, (0 - magnitude) & type_mask);
+    op2->args[3] = TCG_COND_LE;
+    fold_setcond(ctx, op2);
+
+    op->opc = INDEX_op_sub;
+    op->args[1] = negative ? negative_result : positive;
+    op->args[2] = negative ? positive : negative_result;
+    return fold_sub(ctx, op);
+}
+
+/*
  * Reduce signed division by a non-power-of-two constant to unsigned
  * division of the absolute value.  This avoids signed reciprocal corner
  * cases (notably INT_MIN divided by a negative odd divisor).
@@ -2282,7 +2326,8 @@ static bool fold_divide(OptContext *ctx, TCGOp *op)
         if (ctx->type == TCG_TYPE_I32) {
             d = (uint32_t)d;
         }
-        if (fold_divs_magic(ctx, op, d, false)) {
+        if (fold_divs_large(ctx, op, d) ||
+            fold_divs_magic(ctx, op, d, false)) {
             return true;
         }
     }
