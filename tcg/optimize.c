@@ -1904,6 +1904,7 @@ static bool fold_mul_highpart(OptContext *ctx, TCGOp *op);
 static bool fold_mul(OptContext *ctx, TCGOp *op);
 static bool fold_multiply2(OptContext *ctx, TCGOp *op);
 static bool fold_setcond(OptContext *ctx, TCGOp *op);
+static bool fold_negsetcond(OptContext *ctx, TCGOp *op);
 
 static bool tcg_can_emit_mul_highpart(OptContext *ctx)
 {
@@ -2705,13 +2706,25 @@ static bool fold_mul_highpart(OptContext *ctx, TCGOp *op)
                 op->args[2] = arg_new_constant(ctx, bits - ctz64(m));
                 return fold_shift(ctx, op);
             }
-        } else if (op->opc == INDEX_op_mulsh &&
-                   !(m & (UINT64_C(1) << (bits - 1))) &&
-                   is_power_of_2(m)) {
-            unsigned shift = bits - MAX(ctz64(m), 1);
-            op->opc = INDEX_op_sar;
-            op->args[2] = arg_new_constant(ctx, shift);
-            return fold_shift(ctx, op);
+        } else if (op->opc == INDEX_op_mulsh) {
+            /*
+             * The signed high half of x * -1 is -1 exactly when x > 0.
+             * NEGSETCOND maps directly to compare + CSETM on AArch64 and
+             * avoids materializing -1 for a signed high multiply.
+             */
+            if (m == MAKE_64BIT_MASK(0, bits)) {
+                op->opc = INDEX_op_negsetcond;
+                op->args[2] = arg_new_constant(ctx, 0);
+                op->args[3] = TCG_COND_GT;
+                return fold_negsetcond(ctx, op);
+            }
+            if (!(m & (UINT64_C(1) << (bits - 1))) &&
+                is_power_of_2(m)) {
+                unsigned shift = bits - MAX(ctz64(m), 1);
+                op->opc = INDEX_op_sar;
+                op->args[2] = arg_new_constant(ctx, shift);
+                return fold_shift(ctx, op);
+            }
         }
     }
     return finish_folding(ctx, op);
