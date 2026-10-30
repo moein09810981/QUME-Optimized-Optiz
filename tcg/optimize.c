@@ -1898,6 +1898,7 @@ static bool fold_deposit(OptContext *ctx, TCGOp *op)
 }
 
 static bool fold_shift(OptContext *ctx, TCGOp *op);
+static bool fold_neg(OptContext *ctx, TCGOp *op);
 
 static bool fold_divide(OptContext *ctx, TCGOp *op)
 {
@@ -1915,7 +1916,7 @@ static bool fold_divide(OptContext *ctx, TCGOp *op)
         }
         if (d == (ctx->type == TCG_TYPE_I32 ? UINT32_MAX : UINT64_MAX)) {
             op->opc = INDEX_op_neg;
-            return finish_folding(ctx, op);
+            return fold_neg(ctx, op);
         }
     }
 
@@ -1966,12 +1967,13 @@ static bool fold_divide(OptContext *ctx, TCGOp *op)
 
                 op->opc = INDEX_op_neg;
                 op->args[1] = quotient;
+                return fold_neg(ctx, op);
             } else {
                 op->opc = INDEX_op_sar;
                 op->args[1] = sum;
                 op->args[2] = arg_new_constant(ctx, ctz64(magnitude));
+                return fold_shift(ctx, op);
             }
-            return finish_folding(ctx, op);
         }
     }
 
@@ -1989,7 +1991,7 @@ static bool fold_divide(OptContext *ctx, TCGOp *op)
         if (is_power_of_2(d)) {
             op->opc = INDEX_op_shr;
             op->args[2] = arg_new_constant(ctx, ctz64(d));
-            return finish_folding(ctx, op);
+            return fold_shift(ctx, op);
         }
     }
     return finish_folding(ctx, op);
@@ -2308,12 +2310,12 @@ static bool fold_mul(OptContext *ctx, TCGOp *op)
         }
         if (m == (ctx->type == TCG_TYPE_I32 ? UINT32_MAX : UINT64_MAX)) {
             op->opc = INDEX_op_neg;
-            return finish_folding(ctx, op);
+            return fold_neg(ctx, op);
         }
         if (is_power_of_2(m)) {
             op->opc = INDEX_op_shl;
             op->args[2] = arg_new_constant(ctx, ctz64(m));
-            return finish_folding(ctx, op);
+            return fold_shift(ctx, op);
         }
     }
     return finish_folding(ctx, op);
@@ -2341,7 +2343,7 @@ static bool fold_mul_highpart(OptContext *ctx, TCGOp *op)
             if (is_power_of_2(m)) {
                 op->opc = INDEX_op_shr;
                 op->args[2] = arg_new_constant(ctx, bits - ctz64(m));
-                return finish_folding(ctx, op);
+                return fold_shift(ctx, op);
             }
         } else if (op->opc == INDEX_op_mulsh &&
                    !(m & (UINT64_C(1) << (bits - 1))) &&
@@ -2349,7 +2351,7 @@ static bool fold_mul_highpart(OptContext *ctx, TCGOp *op)
             unsigned shift = bits - MAX(ctz64(m), 1);
             op->opc = INDEX_op_sar;
             op->args[2] = arg_new_constant(ctx, shift);
-            return finish_folding(ctx, op);
+            return fold_shift(ctx, op);
         }
     }
     return finish_folding(ctx, op);
@@ -2626,7 +2628,7 @@ static bool fold_remainder(OptContext *ctx, TCGOp *op)
         if (is_power_of_2(d)) {
             op->opc = INDEX_op_and;
             op->args[2] = arg_new_constant(ctx, d - 1);
-            return finish_folding(ctx, op);
+            return fold_and(ctx, op);
         }
     }
     return finish_folding(ctx, op);
