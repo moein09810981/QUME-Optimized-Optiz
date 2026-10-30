@@ -85,6 +85,24 @@ Implement small, isolated changes only where the measurements justify them. Pote
 ### Stage 4 — Regression and performance validation
 Run relevant QEMU tests and guest smoke tests, then repeat the identical benchmarks. Reject changes that regress correctness or produce no repeatable benefit.
 
+## Experimental AArch64 TCG codegen work
+
+The working branch currently carries these source-level experiments:
+
+- Direct AArch64 lowering for ROL, NAND, NOR, and REVBIT8.
+- Logical-immediate forms for ANDC, ORC, NAND, NOR, and EQV where the immediate is encodable.
+- Baseline compare/select lowering for signed and unsigned min/max when FEAT_CSSC is unavailable; CSSC CPUs retain their single-instruction path.
+- An AdvSIMD CNT+ADDV fallback for scalar CTPOP when FEAT_CSSC is unavailable.
+- A constraint-index macro fix required by the 64-bit MULS2/MULU2 register constraints.
+
+Validation at commit `9685dfe6fa084ff52f56146335b5679d7e1e20d7`:
+
+- AArch64 and x86_64 QEMU builds completed.
+- Unit tests passed on both hosts.
+- An x86_64-linux-user smoke test ran on an AArch64 host and verified 32/64-bit POPCNT plus immediate and variable ROL results.
+
+These are still experimental codegen changes, not measured performance wins. No Android build or benchmark has yet been run on the Poco M6. Keep the upstream baseline and reject or revise changes if target-device profiling and repeated benchmarks do not show a benefit.
+
 ## Current status
 
 - [x] Fork confirmed to be based on the official `qemu/qemu` GitHub mirror.
@@ -92,6 +110,8 @@ Run relevant QEMU tests and guest smoke tests, then repeat the identical benchma
 - [x] Recorded the target and measurement-first process.
 - [x] Added a configurable Release/LTO build script and optional lean-device experiment.
 - [x] Documented the PGO and profiling workflow.
+- [x] Built and unit-tested the experimental AArch64 TCG codegen changes on Linux AArch64 and x86_64 CI hosts.
+- [x] Ran an x86_64 guest-instruction smoke test on an AArch64 host for POPCNT and ROL.
 - [ ] Establish and verify an Android ARM64 host build.
 - [ ] Capture baseline results on the target phone using a lightweight x86-64 Linux guest.
 - [ ] Run PGO using a representative guest workload.
