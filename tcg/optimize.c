@@ -2001,124 +2001,6 @@ static bool fold_divu_magic(OptContext *ctx, TCGOp *op, uint64_t divisor)
     return fold_shift(ctx, op);
 }
 
-/*
- * Signed counterpart of the unsigned magic generator.  The magic value is
- * kept in the guest-width bit pattern so negation is well-defined.
- */
-static bool tcg_signed_div_magic(uint64_t d, unsigned bits,
-                                TCGUnsignedDivMagic *m, bool *negative)
-{
-#if defined(CONFIG_INT128)
-    uint64_t mask = MAKE_64BIT_MASK(0, bits);
-    uint64_t abs_d;
-    unsigned floor_log;
-    __uint128_t numerator, proposed, rem, e, twice_rem;
-
-    d &= mask;
-    *negative = (d >> (bits - 1)) != 0;
-    abs_d = *negative ? (0 - d) & mask : d;
-    if (abs_d <= 1 || is_power_of_2(abs_d) ||
-        (bits != 32 && bits != 64)) {
-        return false;
-    }
-
-    floor_log = 63 - clz64(abs_d);
-    numerator = (__uint128_t)1 << (bits + floor_log - 1);
-    proposed = numerator / abs_d;
-    rem = numerator % abs_d;
-    e = abs_d - rem;
-
-    m->add = e >= ((__uint128_t)1 << floor_log);
-    if (m->add) {
-        proposed *= 2;
-        twice_rem = rem * 2;
-        if (twice_rem >= abs_d) {
-            proposed++;
-        }
-        m->shift = floor_log;
-    } else {
-        m->shift = floor_log - 1;
-    }
-
-    m->magic = (uint64_t)(proposed + 1) & mask;
-    if (*negative) {
-        m->magic = (0 - m->magic) & mask;
-    }
-    return m->magic != 0;
-#else
-    return false;
-#endif
-}
-
-/*
- * Replace signed division by a non-power-of-two constant.  The final
- * sign correction converts arithmetic-shift rounding to truncation toward 0.
- */
-static bool fold_divs_magic(OptContext *ctx, TCGOp *op, uint64_t divisor)
-{
-    TCGUnsignedDivMagic m;
-    unsigned bits = tcg_type_bits(ctx->type);
-    bool negative;
-    TCGArg x = op->args[1], q = arg_new_temp(ctx);
-    TCGOp *op2;
-
-    if (!tcg_signed_div_magic(divisor, bits, &m, &negative)) {
-        return false;
-    }
-
-    op2 = opt_insert_before(ctx, op, INDEX_op_mulsh, 3);
-    op2->args[0] = q;
-    op2->args[1] = x;
-    op2->args[2] = arg_new_constant(ctx, m.magic);
-    fold_mul_highpart(ctx, op2);
-
-    if (m.add) {
-        TCGArg addend = x;
-
-        if (negative) {
-            addend = arg_new_temp(ctx);
-            op2 = opt_insert_before(ctx, op, INDEX_op_neg, 2);
-            op2->args[0] = addend;
-            op2->args[1] = x;
-            fold_neg(ctx, op2);
-        }
-
-        op2 = opt_insert_before(ctx, op, INDEX_op_add, 3);
-        op2->args[0] = q;
-        op2->args[1] = q;
-        op2->args[2] = addend;
-        fold_add(ctx, op2);
-    }
-
-    op2 = opt_insert_before(ctx, op, INDEX_op_sar, 3);
-    op2->args[0] = q;
-    op2->args[1] = q;
-    op2->args[2] = arg_new_constant(ctx, m.shift);
-    fold_shift(ctx, op2);
-
-    {
-        TCGArg sign = arg_new_temp(ctx);
-        TCGArg correction = arg_new_temp(ctx);
-
-        op2 = opt_insert_before(ctx, op, INDEX_op_sar, 3);
-        op2->args[0] = sign;
-        op2->args[1] = q;
-        op2->args[2] = arg_new_constant(ctx, bits - 1);
-        fold_shift(ctx, op2);
-
-        op2 = opt_insert_before(ctx, op, INDEX_op_and, 3);
-        op2->args[0] = correction;
-        op2->args[1] = sign;
-        op2->args[2] = arg_new_constant(ctx, 1);
-        fold_and(ctx, op2);
-
-        op->opc = INDEX_op_add;
-        op->args[1] = q;
-        op->args[2] = correction;
-        return fold_add(ctx, op);
-    }
-}
-
 static bool fold_divide(OptContext *ctx, TCGOp *op)
 {
     if (fold_const2(ctx, op) ||
@@ -2201,17 +2083,6 @@ static bool fold_divide(OptContext *ctx, TCGOp *op)
      * This avoids a hardware divide on targets without a cheaper
      * immediate-divide instruction.
      */
-    if (op->opc == INDEX_op_divs && arg_is_const(op->args[2])) {
-        uint64_t d = arg_const_val(op->args[2]);
-
-        if (ctx->type == TCG_TYPE_I32) {
-            d = (uint32_t)d;
-        }
-        if (fold_divs_magic(ctx, op, d)) {
-            return true;
-        }
-    }
-
     if (op->opc == INDEX_op_divu && arg_is_const(op->args[2])) {
         uint64_t d = arg_const_val(op->args[2]);
 
@@ -2838,112 +2709,51 @@ static bool fold_qemu_st(OptContext *ctx, TCGOp *op)
  */
 static bool fold_rem_magic(OptContext *ctx, TCGOp *op, uint64_t divisor)
 {
-    bool is_signed = op->opc == INDEX_op_rems;
-    bool negative = false;
+    TCGUnsignedDivMagic m;
     unsigned bits = tcg_type_bits(ctx->type);
     TCGArg x = op->args[1], q = arg_new_temp(ctx), product;
     TCGOp *op2;
 
-    if (is_signed) {
-        TCGUnsignedDivMagic m;
+    /* Keep signed remainder on QEMU's original path until its magic
+     * division sequence has a separately verified implementation. */
+    if (op->opc == INDEX_op_rems ||
+        !tcg_unsigned_div_magic(divisor, bits, &m)) {
+        return false;
+    }
 
-        if (!tcg_signed_div_magic(divisor, bits, &m, &negative)) {
-            return false;
-        }
+    op2 = opt_insert_before(ctx, op, INDEX_op_muluh, 3);
+    op2->args[0] = q;
+    op2->args[1] = x;
+    op2->args[2] = arg_new_constant(ctx, m.magic);
+    fold_mul_highpart(ctx, op2);
 
-        op2 = opt_insert_before(ctx, op, INDEX_op_mulsh, 3);
-        op2->args[0] = q;
+    if (m.add) {
+        TCGArg delta = arg_new_temp(ctx);
+
+        op2 = opt_insert_before(ctx, op, INDEX_op_sub, 3);
+        op2->args[0] = delta;
         op2->args[1] = x;
-        op2->args[2] = arg_new_constant(ctx, m.magic);
-        fold_mul_highpart(ctx, op2);
-
-        if (m.add) {
-            TCGArg addend = x;
-
-            if (negative) {
-                addend = arg_new_temp(ctx);
-                op2 = opt_insert_before(ctx, op, INDEX_op_neg, 2);
-                op2->args[0] = addend;
-                op2->args[1] = x;
-                fold_neg(ctx, op2);
-            }
-
-            op2 = opt_insert_before(ctx, op, INDEX_op_add, 3);
-            op2->args[0] = q;
-            op2->args[1] = q;
-            op2->args[2] = addend;
-            fold_add(ctx, op2);
-        }
-
-        op2 = opt_insert_before(ctx, op, INDEX_op_sar, 3);
-        op2->args[0] = q;
-        op2->args[1] = q;
-        op2->args[2] = arg_new_constant(ctx, m.shift);
-        fold_shift(ctx, op2);
-
-        {
-            TCGArg sign = arg_new_temp(ctx);
-            TCGArg correction = arg_new_temp(ctx);
-
-            op2 = opt_insert_before(ctx, op, INDEX_op_sar, 3);
-            op2->args[0] = sign;
-            op2->args[1] = q;
-            op2->args[2] = arg_new_constant(ctx, bits - 1);
-            fold_shift(ctx, op2);
-
-            op2 = opt_insert_before(ctx, op, INDEX_op_and, 3);
-            op2->args[0] = correction;
-            op2->args[1] = sign;
-            op2->args[2] = arg_new_constant(ctx, 1);
-            fold_and(ctx, op2);
-
-            op2 = opt_insert_before(ctx, op, INDEX_op_add, 3);
-            op2->args[0] = q;
-            op2->args[1] = q;
-            op2->args[2] = correction;
-            fold_add(ctx, op2);
-        }
-    } else {
-        TCGUnsignedDivMagic m;
-
-        if (!tcg_unsigned_div_magic(divisor, bits, &m)) {
-            return false;
-        }
-
-        op2 = opt_insert_before(ctx, op, INDEX_op_muluh, 3);
-        op2->args[0] = q;
-        op2->args[1] = x;
-        op2->args[2] = arg_new_constant(ctx, m.magic);
-        fold_mul_highpart(ctx, op2);
-
-        if (m.add) {
-            TCGArg delta = arg_new_temp(ctx);
-
-            op2 = opt_insert_before(ctx, op, INDEX_op_sub, 3);
-            op2->args[0] = delta;
-            op2->args[1] = x;
-            op2->args[2] = q;
-            fold_sub(ctx, op2);
-
-            op2 = opt_insert_before(ctx, op, INDEX_op_shr, 3);
-            op2->args[0] = delta;
-            op2->args[1] = delta;
-            op2->args[2] = arg_new_constant(ctx, 1);
-            fold_shift(ctx, op2);
-
-            op2 = opt_insert_before(ctx, op, INDEX_op_add, 3);
-            op2->args[0] = q;
-            op2->args[1] = q;
-            op2->args[2] = delta;
-            fold_add(ctx, op2);
-        }
+        op2->args[2] = q;
+        fold_sub(ctx, op2);
 
         op2 = opt_insert_before(ctx, op, INDEX_op_shr, 3);
+        op2->args[0] = delta;
+        op2->args[1] = delta;
+        op2->args[2] = arg_new_constant(ctx, 1);
+        fold_shift(ctx, op2);
+
+        op2 = opt_insert_before(ctx, op, INDEX_op_add, 3);
         op2->args[0] = q;
         op2->args[1] = q;
-        op2->args[2] = arg_new_constant(ctx, m.shift);
-        fold_shift(ctx, op2);
+        op2->args[2] = delta;
+        fold_add(ctx, op2);
     }
+
+    op2 = opt_insert_before(ctx, op, INDEX_op_shr, 3);
+    op2->args[0] = q;
+    op2->args[1] = q;
+    op2->args[2] = arg_new_constant(ctx, m.shift);
+    fold_shift(ctx, op2);
 
     product = arg_new_temp(ctx);
     op2 = opt_insert_before(ctx, op, INDEX_op_mul, 3);
