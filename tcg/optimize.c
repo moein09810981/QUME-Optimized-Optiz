@@ -1901,6 +1901,7 @@ static bool fold_shift(OptContext *ctx, TCGOp *op);
 static bool fold_neg(OptContext *ctx, TCGOp *op);
 static bool fold_sub(OptContext *ctx, TCGOp *op);
 static bool fold_mul_highpart(OptContext *ctx, TCGOp *op);
+static bool fold_mul(OptContext *ctx, TCGOp *op);
 
 /*
  * Generate libdivide-style unsigned magic for a constant divisor.
@@ -1915,37 +1916,67 @@ typedef struct TCGUnsignedDivMagic {
 static bool tcg_unsigned_div_magic(uint64_t d, unsigned bits,
                                    TCGUnsignedDivMagic *m)
 {
-#if defined(CONFIG_INT128)
     unsigned floor_log;
-    __uint128_t numerator, proposed, rem, e, twice_rem;
 
     if (d <= 1 || (bits != 32 && bits != 64)) {
         return false;
     }
     if (bits == 32) {
+        uint64_t numerator, proposed, rem, e;
+
         d = (uint32_t)d;
-    }
-    if (is_power_of_2(d)) {
-        return false;
-    }
-
-    floor_log = 63 - clz64(d);
-    numerator = (__uint128_t)1 << (bits + floor_log);
-    proposed = numerator / d;
-    rem = numerator % d;
-    e = d - rem;
-
-    m->add = e >= ((__uint128_t)1 << floor_log);
-    if (m->add) {
-        proposed *= 2;
-        twice_rem = rem * 2;
-        if (twice_rem >= d) {
-            proposed++;
+        if (is_power_of_2(d)) {
+            return false;
         }
+
+        /*
+         * A 32-bit reciprocal needs at most bit 63, so uint64_t is
+         * sufficient even on 32-bit hosts without __int128 support.
+         */
+        floor_log = 63 - clz64(d);
+        numerator = UINT64_C(1) << (bits + floor_log);
+        proposed = numerator / d;
+        rem = numerator % d;
+        e = d - rem;
+
+        m->add = e >= (UINT64_C(1) << floor_log);
+        if (m->add) {
+            proposed *= 2;
+            if (rem * 2 >= d) {
+                proposed++;
+            }
+        }
+        m->magic = (uint32_t)(proposed + 1);
+        m->shift = floor_log;
+        return m->magic != 0;
     }
-    m->magic = (uint64_t)(proposed + 1) & MAKE_64BIT_MASK(0, bits);
-    m->shift = floor_log;
-    return m->magic != 0;
+
+#if defined(CONFIG_INT128)
+    {
+        __uint128_t numerator, proposed, rem, e, twice_rem;
+
+        if (is_power_of_2(d)) {
+            return false;
+        }
+
+        floor_log = 63 - clz64(d);
+        numerator = (__uint128_t)1 << (bits + floor_log);
+        proposed = numerator / d;
+        rem = numerator % d;
+        e = d - rem;
+
+        m->add = e >= ((__uint128_t)1 << floor_log);
+        if (m->add) {
+            proposed *= 2;
+            twice_rem = rem * 2;
+            if (twice_rem >= d) {
+                proposed++;
+            }
+        }
+        m->magic = (uint64_t)(proposed + 1);
+        m->shift = floor_log;
+        return m->magic != 0;
+    }
 #else
     return false;
 #endif
@@ -1960,12 +1991,18 @@ static bool fold_divu_magic(OptContext *ctx, TCGOp *op, uint64_t divisor)
 {
     TCGUnsignedDivMagic m;
     unsigned bits = tcg_type_bits(ctx->type);
-    TCGArg x = op->args[1], q = arg_new_temp(ctx);
+    TCGArg x = op->args[1], q;
     TCGOp *op2;
 
-    if (!tcg_unsigned_div_magic(divisor, bits, &m)) {
+    /*
+     * muluh is not implemented by every TCG host backend.  Do not emit
+     * an opcode that the selected backend cannot lower.
+     */
+    if (!tcg_op_supported(INDEX_op_muluh, ctx->type, 0) ||
+        !tcg_unsigned_div_magic(divisor, bits, &m)) {
         return false;
     }
+    q = arg_new_temp(ctx);
 
     op2 = opt_insert_before(ctx, op, INDEX_op_muluh, 3);
     op2->args[0] = q;
@@ -1999,6 +2036,100 @@ static bool fold_divu_magic(OptContext *ctx, TCGOp *op, uint64_t divisor)
     op->args[1] = q;
     op->args[2] = arg_new_constant(ctx, m.shift);
     return fold_shift(ctx, op);
+}
+
+/*
+ * Reduce signed division by a non-power-of-two constant to unsigned
+ * division of the absolute value.  This avoids signed reciprocal corner
+ * cases (notably INT_MIN divided by a negative odd divisor).
+ *
+ * abs(x) is formed with a sign mask:
+ *     sign = x >> (bits - 1)
+ *     abs  = (x ^ sign) - sign
+ * The unsigned quotient is then conditionally negated with the same
+ * two's-complement mask.  For remainder, x - quotient * divisor is used.
+ */
+static bool fold_divs_magic(OptContext *ctx, TCGOp *op,
+                            uint64_t divisor, bool remainder)
+{
+    TCGUnsignedDivMagic m;
+    unsigned bits = tcg_type_bits(ctx->type);
+    uint64_t type_mask = MAKE_64BIT_MASK(0, bits);
+    uint64_t d = divisor & type_mask;
+    bool negative = (d >> (bits - 1)) != 0;
+    uint64_t magnitude = negative ? (0 - d) & type_mask : d;
+    TCGArg x = op->args[1];
+    TCGArg sign = arg_new_temp(ctx);
+    TCGArg abs_x = arg_new_temp(ctx);
+    TCGArg quotient_abs = arg_new_temp(ctx);
+    TCGArg quotient_sign, quotient_xor;
+    TCGOp *op2, *divop;
+
+    if (magnitude <= 1 || is_power_of_2(magnitude) ||
+        !tcg_op_supported(INDEX_op_muluh, ctx->type, 0) ||
+        !tcg_unsigned_div_magic(magnitude, bits, &m)) {
+        return false;
+    }
+
+    op2 = opt_insert_before(ctx, op, INDEX_op_sar, 3);
+    op2->args[0] = sign;
+    op2->args[1] = x;
+    op2->args[2] = arg_new_constant(ctx, bits - 1);
+    fold_shift(ctx, op2);
+
+    op2 = opt_insert_before(ctx, op, INDEX_op_xor, 3);
+    op2->args[0] = abs_x;
+    op2->args[1] = x;
+    op2->args[2] = sign;
+    fold_xor(ctx, op2);
+
+    op2 = opt_insert_before(ctx, op, INDEX_op_sub, 3);
+    op2->args[0] = abs_x;
+    op2->args[1] = abs_x;
+    op2->args[2] = sign;
+    fold_sub(ctx, op2);
+
+    divop = opt_insert_before(ctx, op, INDEX_op_divu, 3);
+    divop->args[0] = quotient_abs;
+    divop->args[1] = abs_x;
+    divop->args[2] = arg_new_constant(ctx, magnitude);
+    tcg_debug_assert(fold_divu_magic(ctx, divop, magnitude));
+
+    quotient_sign = sign;
+    if (negative) {
+        quotient_sign = arg_new_temp(ctx);
+        op2 = opt_insert_before(ctx, op, INDEX_op_xor, 3);
+        op2->args[0] = quotient_sign;
+        op2->args[1] = sign;
+        op2->args[2] = arg_new_constant(ctx, type_mask);
+        fold_xor(ctx, op2);
+    }
+
+    quotient_xor = arg_new_temp(ctx);
+    op2 = opt_insert_before(ctx, op, INDEX_op_xor, 3);
+    op2->args[0] = quotient_xor;
+    op2->args[1] = quotient_abs;
+    op2->args[2] = quotient_sign;
+    fold_xor(ctx, op2);
+
+    if (remainder) {
+        TCGArg product = arg_new_temp(ctx);
+
+        op2 = opt_insert_before(ctx, op, INDEX_op_mul, 3);
+        op2->args[0] = product;
+        op2->args[1] = quotient_xor;
+        op2->args[2] = arg_new_constant(ctx, d);
+        fold_mul(ctx, op2);
+
+        op->opc = INDEX_op_sub;
+        op->args[1] = x;
+        op->args[2] = product;
+    } else {
+        op->opc = INDEX_op_sub;
+        op->args[1] = quotient_xor;
+        op->args[2] = quotient_sign;
+    }
+    return fold_sub(ctx, op);
 }
 
 static bool fold_divide(OptContext *ctx, TCGOp *op)
@@ -2095,6 +2226,20 @@ static bool fold_divide(OptContext *ctx, TCGOp *op)
             return fold_shift(ctx, op);
         }
         if (d > 1 && fold_divu_magic(ctx, op, d)) {
+            return true;
+        }
+    }
+
+    /*
+     * Arbitrary signed constant divisors use the unsigned reciprocal
+     * path on the absolute dividend, preserving truncation toward zero.
+     */
+    if (op->opc == INDEX_op_divs && arg_is_const(op->args[2])) {
+        uint64_t d = arg_const_val(op->args[2]);
+        if (ctx->type == TCG_TYPE_I32) {
+            d = (uint32_t)d;
+        }
+        if (fold_divs_magic(ctx, op, d, false)) {
             return true;
         }
     }
@@ -2859,7 +3004,7 @@ static bool fold_remainder(OptContext *ctx, TCGOp *op)
         if (ctx->type == TCG_TYPE_I32) {
             d = (uint32_t)d;
         }
-        if (fold_rem_magic(ctx, op, d)) {
+        if (fold_divs_magic(ctx, op, d, true)) {
             return true;
         }
     }
