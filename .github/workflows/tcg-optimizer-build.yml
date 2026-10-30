@@ -139,7 +139,7 @@ jobs:
               return 0;
           }
           EOF
-          x86_64-linux-gnu-gcc -O2 -static -o "$RUNNER_TEMP/tcg-codegen-smoke" "$RUNNER_TEMP/tcg-codegen-smoke.c"
+          x86_64-linux-gnu-gcc -O0 -mno-popcnt -static -o "$RUNNER_TEMP/tcg-codegen-smoke" "$RUNNER_TEMP/tcg-codegen-smoke.c"
           ./build/qemu-x86_64 -cpu max "$RUNNER_TEMP/tcg-codegen-smoke"
 
       - name: Verify QEMU binary
