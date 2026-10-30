@@ -54,5 +54,8 @@ jobs:
       - name: Build QEMU
         run: ninja -C build -j2
 
+      - name: Run unit tests
+        run: meson test -C build --suite unit --print-errorlogs
+
       - name: Verify QEMU binary
         run: ./build/qemu-system-x86_64 --version
