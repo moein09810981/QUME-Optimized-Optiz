@@ -2015,9 +2015,6 @@ static bool fold_divu_magic_precomputed(OptContext *ctx, TCGOp *op,
      * Prefer the dedicated high-half multiply.  Some host backends only
      * expose the two-result multiply, so use its high output as a fallback.
      */
-    if (!tcg_can_emit_mul_highpart(ctx)) {
-        return false;
-    }
     q = arg_new_temp(ctx);
 
     if (tcg_op_supported(INDEX_op_muluh, ctx->type, 0)) {
@@ -2069,7 +2066,8 @@ static bool fold_divu_magic(OptContext *ctx, TCGOp *op, uint64_t divisor)
 {
     TCGUnsignedDivMagic m;
 
-    if (!tcg_unsigned_div_magic(divisor, tcg_type_bits(ctx->type), &m)) {
+    if (!tcg_can_emit_mul_highpart(ctx) ||
+        !tcg_unsigned_div_magic(divisor, tcg_type_bits(ctx->type), &m)) {
         return false;
     }
     return fold_divu_magic_precomputed(ctx, op, &m);
