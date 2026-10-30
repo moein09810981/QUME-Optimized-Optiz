@@ -3062,8 +3062,7 @@ static bool fold_rem_magic(OptContext *ctx, TCGOp *op, uint64_t divisor)
     TCGArg x = op->args[1], q = arg_new_temp(ctx), product;
     TCGOp *op2;
 
-    /* Keep signed remainder on QEMU's original path until its magic
-     * division sequence has a separately verified implementation. */
+    /* Signed remainders are handled by fold_divs_magic/fold_rems_large. */
     if (op->opc == INDEX_op_rems ||
         !tcg_unsigned_div_magic(divisor, bits, &m)) {
         return false;
