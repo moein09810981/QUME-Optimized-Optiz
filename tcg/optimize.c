@@ -1903,6 +1903,7 @@ static bool fold_sub(OptContext *ctx, TCGOp *op);
 static bool fold_mul_highpart(OptContext *ctx, TCGOp *op);
 static bool fold_mul(OptContext *ctx, TCGOp *op);
 static bool fold_multiply2(OptContext *ctx, TCGOp *op);
+static bool fold_setcond(OptContext *ctx, TCGOp *op);
 
 static bool tcg_can_emit_mul_highpart(OptContext *ctx)
 {
@@ -2255,6 +2256,17 @@ static bool fold_divide(OptContext *ctx, TCGOp *op)
             op->opc = INDEX_op_shr;
             op->args[2] = arg_new_constant(ctx, ctz64(d));
             return fold_shift(ctx, op);
+        }
+
+        /*
+         * For d > 2^(bits-1), the unsigned quotient is only 0 or 1.
+         * A comparison is cheaper than a reciprocal multiply sequence.
+         */
+        if (d > (UINT64_C(1) << (tcg_type_bits(ctx->type) - 1))) {
+            op->opc = INDEX_op_setcond;
+            op->args[2] = arg_new_constant(ctx, d);
+            op->args[3] = TCG_COND_GEU;
+            return fold_setcond(ctx, op);
         }
         if (d > 1 && fold_divu_magic(ctx, op, d)) {
             return true;
@@ -3083,6 +3095,29 @@ static bool fold_remainder(OptContext *ctx, TCGOp *op)
             op->opc = INDEX_op_and;
             op->args[2] = arg_new_constant(ctx, d - 1);
             return fold_and(ctx, op);
+        }
+
+        /*
+         * For d > 2^(bits-1), the quotient is at most one.  Select x-d
+         * when x >= d, otherwise keep x; this avoids multiply-high work.
+         */
+        if (d > (UINT64_C(1) << (tcg_type_bits(ctx->type) - 1))) {
+            TCGArg x = op->args[1];
+            TCGArg difference = arg_new_temp(ctx);
+            TCGOp *op2 = opt_insert_before(ctx, op, INDEX_op_sub, 3);
+
+            op2->args[0] = difference;
+            op2->args[1] = x;
+            op2->args[2] = arg_new_constant(ctx, d);
+            fold_sub(ctx, op2);
+
+            op->opc = INDEX_op_movcond;
+            op->args[1] = x;
+            op->args[2] = arg_new_constant(ctx, d);
+            op->args[3] = difference;
+            op->args[4] = x;
+            op->args[5] = TCG_COND_GEU;
+            return fold_movcond(ctx, op);
         }
         if (d > 1 && fold_rem_magic(ctx, op, d)) {
             return true;
