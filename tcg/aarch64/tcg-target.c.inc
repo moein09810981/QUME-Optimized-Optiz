@@ -2385,7 +2385,7 @@ static void tgen_muls2(TCGContext *s, TCGType type,
         tcg_out_insn(s, rrrr, SMADDL, TCG_TYPE_I64,
                      rl, a, b, TCG_REG_XZR);
         tcg_out_ubfm(s, TCG_TYPE_I64, rh, rl, 32, 63);
-        tcg_out_ext32u(s, rl, rl);
+        /* TCG I32 values only require the low word; upper bits are unused. */
     } else {
         tcg_debug_assert(type == TCG_TYPE_I64);
         tcg_out_insn(s, rrrr, MADD, TCG_TYPE_I64, rl, a, b, TCG_REG_XZR);
@@ -2442,7 +2442,7 @@ static void tgen_mulu2(TCGContext *s, TCGType type,
         tcg_out_insn(s, rrrr, UMADDL, TCG_TYPE_I64,
                      rl, a, b, TCG_REG_XZR);
         tcg_out_ubfm(s, TCG_TYPE_I64, rh, rl, 32, 63);
-        tcg_out_ext32u(s, rl, rl);
+        /* TCG I32 values only require the low word; upper bits are unused. */
     } else {
         tcg_debug_assert(type == TCG_TYPE_I64);
         tcg_out_insn(s, rrrr, MADD, TCG_TYPE_I64, rl, a, b, TCG_REG_XZR);
