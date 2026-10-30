@@ -2172,6 +2172,40 @@ static bool fold_divs_magic(OptContext *ctx, TCGOp *op,
         return false;
     }
 
+    if (remainder) {
+        TCGArg product = arg_new_temp(ctx);
+        TCGArg abs_remainder = arg_new_temp(ctx);
+        TCGArg remainder_xor = arg_new_temp(ctx);
+
+        /*
+         * The signed remainder has the dividend's sign, independent of
+         * the divisor's sign.  Compute it from |x| and |d| directly,
+         * avoiding signed-quotient correction and multiplication.
+         */
+        op2 = opt_insert_before(ctx, op, INDEX_op_mul, 3);
+        op2->args[0] = product;
+        op2->args[1] = quotient_abs;
+        op2->args[2] = arg_new_constant(ctx, magnitude);
+        fold_mul(ctx, op2);
+
+        op2 = opt_insert_before(ctx, op, INDEX_op_sub, 3);
+        op2->args[0] = abs_remainder;
+        op2->args[1] = abs_x;
+        op2->args[2] = product;
+        fold_sub(ctx, op2);
+
+        op2 = opt_insert_before(ctx, op, INDEX_op_xor, 3);
+        op2->args[0] = remainder_xor;
+        op2->args[1] = abs_remainder;
+        op2->args[2] = sign;
+        fold_xor(ctx, op2);
+
+        op->opc = INDEX_op_sub;
+        op->args[1] = remainder_xor;
+        op->args[2] = sign;
+        return fold_sub(ctx, op);
+    }
+
     quotient_sign = sign;
     if (negative) {
         quotient_sign = arg_new_temp(ctx);
@@ -2189,36 +2223,9 @@ static bool fold_divs_magic(OptContext *ctx, TCGOp *op,
     op2->args[2] = quotient_sign;
     fold_xor(ctx, op2);
 
-    if (remainder) {
-        TCGArg quotient = arg_new_temp(ctx);
-        TCGArg product = arg_new_temp(ctx);
-
-        /*
-         * quotient_xor is one unit away from the signed quotient when
-         * quotient_sign is all ones.  Materialize the corrected quotient
-         * before multiplying, otherwise negative dividends produce an
-         * incorrect remainder.
-         */
-        op2 = opt_insert_before(ctx, op, INDEX_op_sub, 3);
-        op2->args[0] = quotient;
-        op2->args[1] = quotient_xor;
-        op2->args[2] = quotient_sign;
-        fold_sub(ctx, op2);
-
-        op2 = opt_insert_before(ctx, op, INDEX_op_mul, 3);
-        op2->args[0] = product;
-        op2->args[1] = quotient;
-        op2->args[2] = arg_new_constant(ctx, d);
-        fold_mul(ctx, op2);
-
-        op->opc = INDEX_op_sub;
-        op->args[1] = x;
-        op->args[2] = product;
-    } else {
-        op->opc = INDEX_op_sub;
-        op->args[1] = quotient_xor;
-        op->args[2] = quotient_sign;
-    }
+    op->opc = INDEX_op_sub;
+    op->args[1] = quotient_xor;
+    op->args[2] = quotient_sign;
     return fold_sub(ctx, op);
 }
 
