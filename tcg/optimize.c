@@ -3331,7 +3331,20 @@ static bool fold_shift(OptContext *ctx, TCGOp *op)
     o_mask = t1->o_mask;
 
     if (ti_is_const(t2)) {
-        int sh = ti_const_val(t2);
+        unsigned bits = tcg_type_bits(ctx->type);
+        uint64_t shift_value = ti_const_val(t2);
+        unsigned sh = shift_value & (bits - 1);
+
+        /*
+         * TCG masks scalar shift counts by the operand width.  Normalize
+         * the immediate and eliminate shifts/rotates that become no-ops.
+         */
+        if (sh == 0) {
+            return tcg_opt_gen_mov(ctx, op, op->args[0], op->args[1]);
+        }
+        if (sh != shift_value) {
+            op->args[2] = arg_new_constant(ctx, sh);
+        }
 
         z_mask = do_constant_folding(op->opc, ctx->type, z_mask, sh);
         o_mask = do_constant_folding(op->opc, ctx->type, o_mask, sh);
