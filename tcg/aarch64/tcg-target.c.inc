@@ -2411,13 +2411,21 @@ static const TCGOutOpMul2 outop_muls2 = {
 
 static TCGConstraintSetIndex cset_mulh(TCGType type, unsigned flags)
 {
-    return type == TCG_TYPE_I64 ? C_O1_I2(r, r, r) : C_NotImplemented;
+    return (type == TCG_TYPE_I32 || type == TCG_TYPE_I64)
+        ? C_O1_I2(r, r, r) : C_NotImplemented;
 }
 
 static void tgen_mulsh(TCGContext *s, TCGType type,
                        TCGReg a0, TCGReg a1, TCGReg a2)
 {
-    tcg_out_insn(s, rrr, SMULH, TCG_TYPE_I64, a0, a1, a2);
+    if (type == TCG_TYPE_I32) {
+        tcg_out_insn(s, rrrr, SMADDL, TCG_TYPE_I64,
+                     a0, a1, a2, TCG_REG_XZR);
+        tcg_out_ubfm(s, TCG_TYPE_I64, a0, a0, 32, 63);
+    } else {
+        tcg_debug_assert(type == TCG_TYPE_I64);
+        tcg_out_insn(s, rrr, SMULH, TCG_TYPE_I64, a0, a1, a2);
+    }
 }
 
 static const TCGOutOpBinary outop_mulsh = {
@@ -2461,7 +2469,14 @@ static const TCGOutOpMul2 outop_mulu2 = {
 static void tgen_muluh(TCGContext *s, TCGType type,
                        TCGReg a0, TCGReg a1, TCGReg a2)
 {
-    tcg_out_insn(s, rrr, UMULH, TCG_TYPE_I64, a0, a1, a2);
+    if (type == TCG_TYPE_I32) {
+        tcg_out_insn(s, rrrr, UMADDL, TCG_TYPE_I64,
+                     a0, a1, a2, TCG_REG_XZR);
+        tcg_out_ubfm(s, TCG_TYPE_I64, a0, a0, 32, 63);
+    } else {
+        tcg_debug_assert(type == TCG_TYPE_I64);
+        tcg_out_insn(s, rrr, UMULH, TCG_TYPE_I64, a0, a1, a2);
+    }
 }
 
 static const TCGOutOpBinary outop_muluh = {
