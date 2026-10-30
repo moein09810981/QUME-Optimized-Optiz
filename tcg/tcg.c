@@ -852,7 +852,9 @@ static int tcg_out_pool_finalize(TCGContext *s)
 #define C_O2_I1(O1, O2, I1)             C_PFX3(c_o2_i1_, O1, O2, I1),
 #define C_O2_I2(O1, O2, I1, I2)         C_PFX4(c_o2_i2_, O1, O2, I1, I2),
 #define C_O2_I3(O1, O2, I1, I2, I3)     C_PFX5(c_o2_i3_, O1, O2, I1, I2, I3),
-#define C_O2_I4(O1, O2, I1, I2, I3, I4) C_PFX6(c_o2_i4_, O1, O2, I1, I2, I3, I4),
+#define C_O2_I4(O1, O2, I1, I2, I3, I4) C_PFX6(c_o2_i4_, O1, O2, I1, I2, I3, I4)
+#define C_N1_O1_I2(O1, O2, I1, I2) C_PFX4(c_n1_o1_i2_, O1, O2, I1, I2),
+#define C_N1_O1_I2(O1, O2, I1, I2) C_PFX4(c_n1_o1_i2_, O1, O2, I1, I2),
 #define C_N1_O1_I4(O1, O2, I1, I2, I3, I4) C_PFX6(c_n1_o1_i4_, O1, O2, I1, I2, I3, I4),
 
 typedef enum {
@@ -878,6 +880,7 @@ static TCGConstraintSetIndex tcg_target_op_def(TCGOpcode, TCGType, unsigned);
 #undef C_O2_I2
 #undef C_O2_I3
 #undef C_O2_I4
+#undef C_N1_O1_I2
 #undef C_N1_O1_I4
 
 /* Put all of the constraint sets into an array, indexed by the enum. */
@@ -905,6 +908,7 @@ typedef struct TCGConstraintSet {
 #define C_O2_I2(O1, O2, I1, I2)         { 2, 2, { #O1, #O2, #I1, #I2 } },
 #define C_O2_I3(O1, O2, I1, I2, I3)     { 2, 3, { #O1, #O2, #I1, #I2, #I3 } },
 #define C_O2_I4(O1, O2, I1, I2, I3, I4) { 2, 4, { #O1, #O2, #I1, #I2, #I3, #I4 } },
+#define C_N1_O1_I2(O1, O2, I1, I2) { 2, 2, { "&" #O1, #O2, #I1, #I2 } },
 #define C_N1_O1_I4(O1, O2, I1, I2, I3, I4) { 2, 4, { "&" #O1, #O2, #I1, #I2, #I3, #I4 } },
 
 static const TCGConstraintSet constraint_sets[] = {
@@ -926,6 +930,7 @@ static const TCGConstraintSet constraint_sets[] = {
 #undef C_O2_I2
 #undef C_O2_I3
 #undef C_O2_I4
+#undef C_N1_O1_I2
 #undef C_N1_O1_I4
 
 /* Expand the enumerator to be returned from tcg_target_op_def(). */
