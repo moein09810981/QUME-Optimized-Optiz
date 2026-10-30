@@ -2677,6 +2677,42 @@ static bool fold_multiply2(OptContext *ctx, TCGOp *op)
             }
             g_assert_not_reached();
         }
+
+        /*
+         * Multiplication by a positive power of two only needs shifts:
+         * the low word is a left shift, while the high word is a logical
+         * or arithmetic right shift of the original input.
+         *
+         * Keep the high result in a temporary until after the low shift.
+         * This preserves correctness even when a backend permits the high
+         * output register to overlap an input register.
+         */
+        if (is_power_of_2(b)) {
+            unsigned bits = tcg_type_bits(ctx->type);
+            unsigned shift = ctz64(b);
+            bool is_signed = op->opc == INDEX_op_muls2;
+            TCGArg high_tmp = arg_new_temp(ctx);
+            TCGOpcode high_op = is_signed ? INDEX_op_sar : INDEX_op_shr;
+
+            if (is_signed && (b & (UINT64_C(1) << (bits - 1)))) {
+                return finish_folding(ctx, op);
+            }
+
+            op2 = opt_insert_before(ctx, op, high_op, 3);
+            op2->args[0] = high_tmp;
+            op2->args[1] = op->args[2];
+            op2->args[2] = arg_new_constant(ctx, bits - shift);
+            fold_shift(ctx, op2);
+
+            op->opc = INDEX_op_shl;
+            op->args[0] = rl;
+            op->args[1] = op->args[2];
+            op->args[2] = arg_new_constant(ctx, shift);
+            fold_shift(ctx, op);
+
+            op2 = opt_insert_after(ctx, op, INDEX_op_mov, 2);
+            return tcg_opt_gen_mov(ctx, op2, rh, high_tmp);
+        }
     }
     return finish_folding(ctx, op);
 }
