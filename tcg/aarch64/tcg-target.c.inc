@@ -2817,19 +2817,43 @@ static void tcg_out_set_borrow(TCGContext *s)
 
 static TCGConstraintSetIndex cset_sminmax(TCGType type, unsigned flags)
 {
-    return cpuinfo & CPUINFO_CSSC ? C_O1_I2(r, r, rS) : C_NotImplemented;
+    return cpuinfo & CPUINFO_CSSC
+        ? C_O1_I2(r, r, rS) : C_O1_I2(r, r, rA);
+}
+
+static void tgen_minmax(TCGContext *s, TCGType type, TCGCond cond,
+                        TCGReg a0, TCGReg a1, TCGReg a2)
+{
+    tgen_cmp(s, type, cond, a1, a2);
+    tcg_out_insn(s, csel, CSEL, type, a0, a1, a2, cond);
+}
+
+static void tgen_minmaxi(TCGContext *s, TCGType type, TCGCond cond,
+                         TCGReg a0, TCGReg a1, tcg_target_long a2)
+{
+    tcg_out_movi(s, type, TCG_REG_TMP0, a2);
+    tcg_out_cmp(s, type, cond, a1, a2, true);
+    tcg_out_insn(s, csel, CSEL, type, a0, a1, TCG_REG_TMP0, cond);
 }
 
 static void tgen_smax(TCGContext *s, TCGType type,
                       TCGReg a0, TCGReg a1, TCGReg a2)
 {
-    tcg_out_insn(s, rrr, SMAX, type, a0, a1, a2);
+    if (cpuinfo & CPUINFO_CSSC) {
+        tcg_out_insn(s, rrr, SMAX, type, a0, a1, a2);
+    } else {
+        tgen_minmax(s, type, TCG_COND_GT, a0, a1, a2);
+    }
 }
 
 static void tgen_smaxi(TCGContext *s, TCGType type,
                        TCGReg a0, TCGReg a1, tcg_target_long a2)
 {
-    tcg_out_insn(s, minmax_imm, SMAXI, type, a0, a1, a2);
+    if (cpuinfo & CPUINFO_CSSC) {
+        tcg_out_insn(s, minmax_imm, SMAXI, type, a0, a1, a2);
+    } else {
+        tgen_minmaxi(s, type, TCG_COND_GT, a0, a1, a2);
+    }
 }
 
 static const TCGOutOpBinary outop_smax = {
@@ -2842,13 +2866,21 @@ static const TCGOutOpBinary outop_smax = {
 static void tgen_smin(TCGContext *s, TCGType type,
                       TCGReg a0, TCGReg a1, TCGReg a2)
 {
-    tcg_out_insn(s, rrr, SMIN, type, a0, a1, a2);
+    if (cpuinfo & CPUINFO_CSSC) {
+        tcg_out_insn(s, rrr, SMIN, type, a0, a1, a2);
+    } else {
+        tgen_minmax(s, type, TCG_COND_LT, a0, a1, a2);
+    }
 }
 
 static void tgen_smini(TCGContext *s, TCGType type,
                        TCGReg a0, TCGReg a1, tcg_target_long a2)
 {
-    tcg_out_insn(s, minmax_imm, SMINI, type, a0, a1, a2);
+    if (cpuinfo & CPUINFO_CSSC) {
+        tcg_out_insn(s, minmax_imm, SMINI, type, a0, a1, a2);
+    } else {
+        tgen_minmaxi(s, type, TCG_COND_LT, a0, a1, a2);
+    }
 }
 
 static const TCGOutOpBinary outop_smin = {
@@ -2860,19 +2892,28 @@ static const TCGOutOpBinary outop_smin = {
 
 static TCGConstraintSetIndex cset_uminmax(TCGType type, unsigned flags)
 {
-    return cpuinfo & CPUINFO_CSSC ? C_O1_I2(r, r, rU) : C_NotImplemented;
+    return cpuinfo & CPUINFO_CSSC
+        ? C_O1_I2(r, r, rU) : C_O1_I2(r, r, rA);
 }
 
 static void tgen_umax(TCGContext *s, TCGType type,
                       TCGReg a0, TCGReg a1, TCGReg a2)
 {
-    tcg_out_insn(s, rrr, UMAX, type, a0, a1, a2);
+    if (cpuinfo & CPUINFO_CSSC) {
+        tcg_out_insn(s, rrr, UMAX, type, a0, a1, a2);
+    } else {
+        tgen_minmax(s, type, TCG_COND_GTU, a0, a1, a2);
+    }
 }
 
 static void tgen_umaxi(TCGContext *s, TCGType type,
                        TCGReg a0, TCGReg a1, tcg_target_long a2)
 {
-    tcg_out_insn(s, minmax_imm, UMAXI, type, a0, a1, a2);
+    if (cpuinfo & CPUINFO_CSSC) {
+        tcg_out_insn(s, minmax_imm, UMAXI, type, a0, a1, a2);
+    } else {
+        tgen_minmaxi(s, type, TCG_COND_GTU, a0, a1, a2);
+    }
 }
 
 static const TCGOutOpBinary outop_umax = {
@@ -2885,13 +2926,21 @@ static const TCGOutOpBinary outop_umax = {
 static void tgen_umin(TCGContext *s, TCGType type,
                       TCGReg a0, TCGReg a1, TCGReg a2)
 {
-    tcg_out_insn(s, rrr, UMIN, type, a0, a1, a2);
+    if (cpuinfo & CPUINFO_CSSC) {
+        tcg_out_insn(s, rrr, UMIN, type, a0, a1, a2);
+    } else {
+        tgen_minmax(s, type, TCG_COND_LTU, a0, a1, a2);
+    }
 }
 
 static void tgen_umini(TCGContext *s, TCGType type,
                        TCGReg a0, TCGReg a1, tcg_target_long a2)
 {
-    tcg_out_insn(s, minmax_imm, UMINI, type, a0, a1, a2);
+    if (cpuinfo & CPUINFO_CSSC) {
+        tcg_out_insn(s, minmax_imm, UMINI, type, a0, a1, a2);
+    } else {
+        tgen_minmaxi(s, type, TCG_COND_LTU, a0, a1, a2);
+    }
 }
 
 static const TCGOutOpBinary outop_umin = {
