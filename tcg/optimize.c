@@ -2190,11 +2190,24 @@ static bool fold_divs_magic(OptContext *ctx, TCGOp *op,
     fold_xor(ctx, op2);
 
     if (remainder) {
+        TCGArg quotient = arg_new_temp(ctx);
         TCGArg product = arg_new_temp(ctx);
+
+        /*
+         * quotient_xor is one unit away from the signed quotient when
+         * quotient_sign is all ones.  Materialize the corrected quotient
+         * before multiplying, otherwise negative dividends produce an
+         * incorrect remainder.
+         */
+        op2 = opt_insert_before(ctx, op, INDEX_op_sub, 3);
+        op2->args[0] = quotient;
+        op2->args[1] = quotient_xor;
+        op2->args[2] = quotient_sign;
+        fold_sub(ctx, op2);
 
         op2 = opt_insert_before(ctx, op, INDEX_op_mul, 3);
         op2->args[0] = product;
-        op2->args[1] = quotient_xor;
+        op2->args[1] = quotient;
         op2->args[2] = arg_new_constant(ctx, d);
         fold_mul(ctx, op2);
 
