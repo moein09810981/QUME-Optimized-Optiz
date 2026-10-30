@@ -2350,9 +2350,16 @@ static void tgen_eqv(TCGContext *s, TCGType type,
     tcg_out_insn(s, logic_shift, EON, type, a0, a1, a2);
 }
 
+static void tgen_eqvi(TCGContext *s, TCGType type,
+                       TCGReg a0, TCGReg a1, tcg_target_long a2)
+{
+    tcg_out_logicali(s, Ilogic_imm_EORI, type, a0, a1, ~a2);
+}
+
 static const TCGOutOpBinary outop_eqv = {
-    .base.static_constraint = C_O1_I2(r, r, r),
+    .base.static_constraint = C_O1_I2(r, r, rL),
     .out_rrr = tgen_eqv,
+    .out_rri = tgen_eqvi,
 };
 
 static void tgen_extrh_i64_i32(TCGContext *s, TCGType t, TCGReg a0, TCGReg a1)
