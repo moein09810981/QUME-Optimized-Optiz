@@ -1914,22 +1914,24 @@ typedef struct TCGUnsignedDivMagic {
 } TCGUnsignedDivMagic;
 
 /*
- * Divide the 128-bit value 2^bit by a 64-bit divisor.  The quotient
- * fits in 64 bits for the bit positions used by the magic generator.
- * This keeps 64-bit constant division available on 32-bit hosts that
- * do not provide a native __int128 type.
+ * Divide 2^(64 + floor_log) by a 64-bit divisor using 64 rounds of
+ * restoring division.  The quotient fits in 64 bits because the
+ * divisor is strictly greater than 2^floor_log.
+ *
+ * This keeps 64-bit constant division available on 32-bit hosts that do
+ * not provide a native __int128 type.
  */
-static uint64_t tcg_div_pow2_u128_u64(uint64_t d, unsigned bit,
-                                      uint64_t *remainder)
+static uint64_t tcg_div_pow2_u64(uint64_t d, unsigned floor_log,
+                                 uint64_t *remainder)
 {
-    uint64_t quotient = 0, rem = 0;
-    int i;
+    uint64_t quotient = 0;
+    uint64_t rem = UINT64_C(1) << floor_log;
+    unsigned i;
 
-    for (i = bit; i >= 0; --i) {
+    for (i = 0; i < 64; ++i) {
         uint64_t carry = rem >> 63;
-        unsigned input = (i == (int)bit);
 
-        rem = (rem << 1) | input;
+        rem <<= 1;
         quotient <<= 1;
         if (carry || rem >= d) {
             rem -= d;
@@ -1970,7 +1972,7 @@ static bool tcg_unsigned_div_magic(uint64_t d, unsigned bits,
             return false;
         }
         floor_log = 63 - clz64(d);
-        proposed = tcg_div_pow2_u128_u64(d, bits + floor_log, &rem);
+        proposed = tcg_div_pow2_u64(d, floor_log, &rem);
     }
     e = d - rem;
 
