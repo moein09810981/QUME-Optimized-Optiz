@@ -2707,9 +2707,10 @@ static bool fold_mul_highpart(OptContext *ctx, TCGOp *op)
                 return fold_shift(ctx, op);
             }
         } else if (op->opc == INDEX_op_mulsh) {
+#if defined(__aarch64__)
             /*
              * The signed high half of x * -1 is -1 exactly when x > 0.
-             * NEGSETCOND maps directly to compare + CSETM on AArch64 and
+             * On AArch64, NEGSETCOND maps directly to CMP + CSETM and
              * avoids materializing -1 for a signed high multiply.
              */
             if (m == MAKE_64BIT_MASK(0, bits)) {
@@ -2718,6 +2719,7 @@ static bool fold_mul_highpart(OptContext *ctx, TCGOp *op)
                 op->args[3] = TCG_COND_GT;
                 return fold_negsetcond(ctx, op);
             }
+#endif
             if (!(m & (UINT64_C(1) << (bits - 1))) &&
                 is_power_of_2(m)) {
                 unsigned shift = bits - MAX(ctz64(m), 1);
