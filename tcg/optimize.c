@@ -1899,6 +1899,7 @@ static bool fold_deposit(OptContext *ctx, TCGOp *op)
 
 static bool fold_shift(OptContext *ctx, TCGOp *op);
 static bool fold_neg(OptContext *ctx, TCGOp *op);
+static bool fold_sub(OptContext *ctx, TCGOp *op);
 
 static bool fold_divide(OptContext *ctx, TCGOp *op)
 {
@@ -2615,6 +2616,54 @@ static bool fold_remainder(OptContext *ctx, TCGOp *op)
             (op->opc == INDEX_op_rems &&
              d == (ctx->type == TCG_TYPE_I32 ? UINT32_MAX : UINT64_MAX))) {
             return tcg_opt_gen_movi(ctx, op, op->args[0], 0);
+        }
+    }
+
+    /*
+     * Signed remainder by +/-2^n can avoid the divide.  Bias negative
+     * dividends toward zero, clear the low n bits, then subtract.
+     */
+    if (op->opc == INDEX_op_rems && arg_is_const(op->args[2])) {
+        unsigned bits = tcg_type_bits(ctx->type);
+        uint64_t type_mask = MAKE_64BIT_MASK(0, bits);
+        uint64_t d = arg_const_val(op->args[2]) & type_mask;
+        bool negative = d & (UINT64_C(1) << (bits - 1));
+        uint64_t magnitude = negative ? (0 - d) & type_mask : d;
+
+        if (magnitude > 1 && is_power_of_2(magnitude)) {
+            TCGArg x = op->args[1];
+            TCGArg bias = arg_new_temp(ctx);
+            TCGArg rounded = arg_new_temp(ctx);
+            TCGOp *op2;
+
+            op2 = opt_insert_before(ctx, op, INDEX_op_sar, 3);
+            op2->args[0] = bias;
+            op2->args[1] = x;
+            op2->args[2] = arg_new_constant(ctx, bits - 1);
+            fold_shift(ctx, op2);
+
+            op2 = opt_insert_before(ctx, op, INDEX_op_and, 3);
+            op2->args[0] = bias;
+            op2->args[1] = bias;
+            op2->args[2] = arg_new_constant(ctx, magnitude - 1);
+            fold_and(ctx, op2);
+
+            op2 = opt_insert_before(ctx, op, INDEX_op_add, 3);
+            op2->args[0] = rounded;
+            op2->args[1] = x;
+            op2->args[2] = bias;
+            fold_add(ctx, op2);
+
+            op2 = opt_insert_before(ctx, op, INDEX_op_and, 3);
+            op2->args[0] = rounded;
+            op2->args[1] = rounded;
+            op2->args[2] = arg_new_constant(ctx, type_mask ^ (magnitude - 1));
+            fold_and(ctx, op2);
+
+            op->opc = INDEX_op_sub;
+            op->args[1] = x;
+            op->args[2] = rounded;
+            return fold_sub(ctx, op);
         }
     }
 
