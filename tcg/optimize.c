@@ -1929,7 +1929,7 @@ static bool tcg_unsigned_div_magic(uint64_t d, unsigned bits,
         return false;
     }
 
-    floor_log = bits - 1 - clz64(d);
+    floor_log = 63 - clz64(d);
     numerator = (__uint128_t)1 << (bits + floor_log);
     proposed = numerator / d;
     rem = numerator % d;
@@ -2022,7 +2022,7 @@ static bool tcg_signed_div_magic(uint64_t d, unsigned bits,
         return false;
     }
 
-    floor_log = bits - 1 - clz64(abs_d);
+    floor_log = 63 - clz64(abs_d);
     numerator = (__uint128_t)1 << (bits + floor_log - 1);
     proposed = numerator / abs_d;
     rem = numerator % abs_d;
