@@ -2996,6 +2996,61 @@ static bool fold_qemu_st(OptContext *ctx, TCGOp *op)
 }
 
 /*
+ * For a signed divisor with |d| > 2^(bits-2), the remainder needs at
+ * most one adjustment.  Select x-|d| for large positive dividends,
+ * x+|d| for large negative dividends, and x otherwise.
+ */
+static bool fold_rems_large(OptContext *ctx, TCGOp *op, uint64_t divisor)
+{
+    unsigned bits = tcg_type_bits(ctx->type);
+    uint64_t type_mask = MAKE_64BIT_MASK(0, bits);
+    uint64_t d = divisor & type_mask;
+    bool negative = (d >> (bits - 1)) != 0;
+    uint64_t magnitude = negative ? (0 - d) & type_mask : d;
+    TCGArg x = op->args[1];
+    TCGArg positive_diff, negative_sum, middle;
+    TCGOp *op2;
+
+    if (magnitude <= (UINT64_C(1) << (bits - 2)) ||
+        is_power_of_2(magnitude)) {
+        return false;
+    }
+
+    positive_diff = arg_new_temp(ctx);
+    negative_sum = arg_new_temp(ctx);
+    middle = arg_new_temp(ctx);
+
+    op2 = opt_insert_before(ctx, op, INDEX_op_sub, 3);
+    op2->args[0] = positive_diff;
+    op2->args[1] = x;
+    op2->args[2] = arg_new_constant(ctx, magnitude);
+    fold_sub(ctx, op2);
+
+    op2 = opt_insert_before(ctx, op, INDEX_op_add, 3);
+    op2->args[0] = negative_sum;
+    op2->args[1] = x;
+    op2->args[2] = arg_new_constant(ctx, magnitude);
+    fold_add(ctx, op2);
+
+    op2 = opt_insert_before(ctx, op, INDEX_op_movcond, 6);
+    op2->args[0] = middle;
+    op2->args[1] = x;
+    op2->args[2] = arg_new_constant(ctx, (0 - magnitude) & type_mask);
+    op2->args[3] = negative_sum;
+    op2->args[4] = x;
+    op2->args[5] = TCG_COND_LE;
+    fold_movcond(ctx, op2);
+
+    op->opc = INDEX_op_movcond;
+    op->args[1] = x;
+    op->args[2] = arg_new_constant(ctx, magnitude);
+    op->args[3] = positive_diff;
+    op->args[4] = middle;
+    op->args[5] = TCG_COND_GE;
+    return fold_movcond(ctx, op);
+}
+
+/*
  * Build a constant-divisor quotient into a fresh temporary, then use
  * x - q*d for remainder.  This shares the reciprocal sequences used by
  * division and avoids emitting a hardware divide for constant divisors.
@@ -3175,7 +3230,8 @@ static bool fold_remainder(OptContext *ctx, TCGOp *op)
         if (ctx->type == TCG_TYPE_I32) {
             d = (uint32_t)d;
         }
-        if (fold_divs_magic(ctx, op, d, true)) {
+        if (fold_rems_large(ctx, op, d) ||
+            fold_divs_magic(ctx, op, d, true)) {
             return true;
         }
     }
