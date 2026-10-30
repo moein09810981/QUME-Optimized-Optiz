@@ -2519,6 +2519,19 @@ static bool fold_remainder(OptContext *ctx, TCGOp *op)
         return true;
     }
 
+    if (arg_is_const(op->args[2])) {
+        uint64_t d = arg_const_val(op->args[2]);
+
+        if (ctx->type == TCG_TYPE_I32) {
+            d = (uint32_t)d;
+        }
+        if (d == 1 ||
+            (op->opc == INDEX_op_rems &&
+             d == (ctx->type == TCG_TYPE_I32 ? UINT32_MAX : UINT64_MAX))) {
+            return tcg_opt_gen_movi(ctx, op, op->args[0], 0);
+        }
+    }
+
     /* Unsigned remainder by 2^n is the low n bits. */
     if (op->opc == INDEX_op_remu && arg_is_const(op->args[2])) {
         uint64_t d = arg_const_val(op->args[2]);
