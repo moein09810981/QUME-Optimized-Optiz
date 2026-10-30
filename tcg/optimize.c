@@ -1905,10 +1905,16 @@ static bool fold_divide(OptContext *ctx, TCGOp *op)
     }
 
     /* Signed division by -1 is two's-complement negation. */
-    if (op->opc == INDEX_op_divs &&
-        arg_is_const_val(op->args[2], -1)) {
-        op->opc = INDEX_op_neg;
-        return finish_folding(ctx, op);
+    if (op->opc == INDEX_op_divs && arg_is_const(op->args[2])) {
+        uint64_t d = arg_const_val(op->args[2]);
+
+        if (ctx->type == TCG_TYPE_I32) {
+            d = (uint32_t)d;
+        }
+        if (d == (ctx->type == TCG_TYPE_I32 ? UINT32_MAX : UINT64_MAX)) {
+            op->opc = INDEX_op_neg;
+            return finish_folding(ctx, op);
+        }
     }
 
     /*
