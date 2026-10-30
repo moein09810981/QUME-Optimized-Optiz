@@ -2395,7 +2395,11 @@ static void tgen_muls2(TCGContext *s, TCGType type,
 
 static TCGConstraintSetIndex cset_muls2(TCGType type, unsigned flags)
 {
-    return (type == TCG_TYPE_I32 || type == TCG_TYPE_I64)
+    if (type == TCG_TYPE_I32) {
+        /* SMADDL consumes both inputs before writing the low result. */
+        return C_O2_I2(r, r, r, r);
+    }
+    return type == TCG_TYPE_I64
         ? C_O2_I2(&r, r, r, r) : C_NotImplemented;
 }
 
@@ -2440,7 +2444,11 @@ static void tgen_mulu2(TCGContext *s, TCGType type,
 
 static TCGConstraintSetIndex cset_mulu2(TCGType type, unsigned flags)
 {
-    return (type == TCG_TYPE_I32 || type == TCG_TYPE_I64)
+    if (type == TCG_TYPE_I32) {
+        /* UMADDL consumes both inputs before writing the low result. */
+        return C_O2_I2(r, r, r, r);
+    }
+    return type == TCG_TYPE_I64
         ? C_O2_I2(&r, r, r, r) : C_NotImplemented;
 }
 
