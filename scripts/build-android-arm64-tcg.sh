@@ -2,7 +2,7 @@
 # Experimental native Android/ARM64-host QEMU TCG build for Termux.
 # Run from the QEMU source root: bash scripts/build-android-arm64-tcg.sh
 # Optional environment variables:
-#   BUILD_DIR=... JOBS=2 LEAN_DEVICES=1 EXTRA_CFLAGS="-O3"
+#   BUILD_DIR=... JOBS=2 LEAN_DEVICES=1 EXTRA_CFLAGS="-O3" HOST_CPU_FLAGS=""
 set -Eeuo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -10,6 +10,7 @@ BUILD_DIR="${BUILD_DIR:-$ROOT/build-android-arm64-tcg}"
 JOBS="${JOBS:-2}"
 LEAN_DEVICES="${LEAN_DEVICES:-0}"
 EXTRA_CFLAGS="${EXTRA_CFLAGS:--O3}"
+HOST_CPU_FLAGS="${HOST_CPU_FLAGS:-}"
 
 for tool in clang meson ninja pkg-config python; do
     command -v "$tool" >/dev/null 2>&1 || {
@@ -41,9 +42,10 @@ CONFIGURE_ARGS=(
     --enable-tcg
     -Dbuildtype=release
     -Db_lto=true
+    -Db_lto_mode=thin
     --disable-docs
     --disable-werror
-    --extra-cflags="$EXTRA_CFLAGS"
+    --extra-cflags="$EXTRA_CFLAGS ${HOST_CPU_FLAGS}"
 )
 
 # This removes QEMU's default device selection. Use only as a separate
