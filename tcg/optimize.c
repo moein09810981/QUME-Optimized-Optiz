@@ -1918,6 +1918,58 @@ static bool fold_divide(OptContext *ctx, TCGOp *op)
     }
 
     /*
+     * Signed division by +/-2^n can be strength-reduced.  Add a sign
+     * dependent bias before the arithmetic shift to preserve C/TCG's
+     * round-toward-zero semantics for negative dividends.
+     */
+    if (op->opc == INDEX_op_divs && arg_is_const(op->args[2])) {
+        unsigned bits = tcg_type_bits(ctx->type);
+        uint64_t type_mask = MAKE_64BIT_MASK(0, bits);
+        uint64_t d = arg_const_val(op->args[2]) & type_mask;
+        bool negative = d & (UINT64_C(1) << (bits - 1));
+        uint64_t magnitude = negative ? (0 - d) & type_mask : d;
+
+        if (magnitude > 1 && is_power_of_2(magnitude)) {
+            TCGArg x = op->args[1];
+            TCGArg bias = arg_new_temp(ctx);
+            TCGArg sum = arg_new_temp(ctx);
+            TCGOp *op2;
+
+            op2 = opt_insert_before(ctx, op, INDEX_op_sar, 3);
+            op2->args[0] = bias;
+            op2->args[1] = x;
+            op2->args[2] = arg_new_constant(ctx, bits - 1);
+
+            op2 = opt_insert_before(ctx, op, INDEX_op_and, 3);
+            op2->args[0] = bias;
+            op2->args[1] = bias;
+            op2->args[2] = arg_new_constant(ctx, magnitude - 1);
+
+            op2 = opt_insert_before(ctx, op, INDEX_op_add, 3);
+            op2->args[0] = sum;
+            op2->args[1] = x;
+            op2->args[2] = bias;
+
+            if (negative) {
+                TCGArg quotient = arg_new_temp(ctx);
+
+                op2 = opt_insert_before(ctx, op, INDEX_op_sar, 3);
+                op2->args[0] = quotient;
+                op2->args[1] = sum;
+                op2->args[2] = arg_new_constant(ctx, ctz64(magnitude));
+
+                op->opc = INDEX_op_neg;
+                op->args[1] = quotient;
+            } else {
+                op->opc = INDEX_op_sar;
+                op->args[1] = sum;
+                op->args[2] = arg_new_constant(ctx, ctz64(magnitude));
+            }
+            return finish_folding(ctx, op);
+        }
+    }
+
+    /*
      * Unsigned division by a power of two is an exact logical shift.
      * This avoids a hardware divide on targets without a cheaper
      * immediate-divide instruction.
