@@ -557,6 +557,8 @@ typedef enum {
     /* Data-processing (3 source) instructions.  */
     Irrrr_MADD         = 0x1b000000,
     Irrrr_MSUB         = 0x1b008000,
+    Irrrr_SMADDL       = 0x9b200000,
+    Irrrr_UMADDL       = 0x9ba00000,
 
     /* Logical shifted register instructions (without a shift).  */
     Ilogic_shift_AND   = 0x0a000000,
@@ -2378,14 +2380,22 @@ static const TCGOutOpBinary outop_mul = {
 static void tgen_muls2(TCGContext *s, TCGType type,
                        TCGReg rl, TCGReg rh, TCGReg a, TCGReg b)
 {
-    tcg_debug_assert(type == TCG_TYPE_I64);
-    tcg_out_insn(s, rrrr, MADD, TCG_TYPE_I64, rl, a, b, TCG_REG_XZR);
-    tcg_out_insn(s, rrr, SMULH, TCG_TYPE_I64, rh, a, b);
+    if (type == TCG_TYPE_I32) {
+        /* SMADDL forms the full signed 32x32 product in one X register. */
+        tcg_out_insn(s, rrrr, SMADDL, TCG_TYPE_I64,
+                     rl, a, b, TCG_REG_XZR);
+        tcg_out_ubfm(s, TCG_TYPE_I64, rh, rl, 32, 63);
+    } else {
+        tcg_debug_assert(type == TCG_TYPE_I64);
+        tcg_out_insn(s, rrrr, MADD, TCG_TYPE_I64, rl, a, b, TCG_REG_XZR);
+        tcg_out_insn(s, rrr, SMULH, TCG_TYPE_I64, rh, a, b);
+    }
 }
 
 static TCGConstraintSetIndex cset_muls2(TCGType type, unsigned flags)
 {
-    return type == TCG_TYPE_I64 ? C_O2_I2(&r, r, r, r) : C_NotImplemented;
+    return (type == TCG_TYPE_I32 || type == TCG_TYPE_I64)
+        ? C_O2_I2(&r, r, r, r) : C_NotImplemented;
 }
 
 static const TCGOutOpMul2 outop_muls2 = {
@@ -2414,14 +2424,22 @@ static const TCGOutOpBinary outop_mulsh = {
 static void tgen_mulu2(TCGContext *s, TCGType type,
                        TCGReg rl, TCGReg rh, TCGReg a, TCGReg b)
 {
-    tcg_debug_assert(type == TCG_TYPE_I64);
-    tcg_out_insn(s, rrrr, MADD, TCG_TYPE_I64, rl, a, b, TCG_REG_XZR);
-    tcg_out_insn(s, rrr, UMULH, TCG_TYPE_I64, rh, a, b);
+    if (type == TCG_TYPE_I32) {
+        /* UMADDL forms the full unsigned 32x32 product in one X register. */
+        tcg_out_insn(s, rrrr, UMADDL, TCG_TYPE_I64,
+                     rl, a, b, TCG_REG_XZR);
+        tcg_out_ubfm(s, TCG_TYPE_I64, rh, rl, 32, 63);
+    } else {
+        tcg_debug_assert(type == TCG_TYPE_I64);
+        tcg_out_insn(s, rrrr, MADD, TCG_TYPE_I64, rl, a, b, TCG_REG_XZR);
+        tcg_out_insn(s, rrr, UMULH, TCG_TYPE_I64, rh, a, b);
+    }
 }
 
 static TCGConstraintSetIndex cset_mulu2(TCGType type, unsigned flags)
 {
-    return type == TCG_TYPE_I64 ? C_O2_I2(&r, r, r, r) : C_NotImplemented;
+    return (type == TCG_TYPE_I32 || type == TCG_TYPE_I64)
+        ? C_O2_I2(&r, r, r, r) : C_NotImplemented;
 }
 
 static const TCGOutOpMul2 outop_mulu2 = {
