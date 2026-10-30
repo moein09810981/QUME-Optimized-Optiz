@@ -2005,10 +2005,9 @@ static bool tcg_unsigned_div_magic(uint64_t d, unsigned bits,
  * high-half multiply and shifts.  The add-marker path implements the
  * 65-bit reciprocal without requiring a wider guest integer.
  */
-static bool fold_divu_magic(OptContext *ctx, TCGOp *op, uint64_t divisor)
+static bool fold_divu_magic_precomputed(OptContext *ctx, TCGOp *op,
+                                           const TCGUnsignedDivMagic *m)
 {
-    TCGUnsignedDivMagic m;
-    unsigned bits = tcg_type_bits(ctx->type);
     TCGArg x = op->args[1], q;
     TCGOp *op2;
 
@@ -2016,8 +2015,7 @@ static bool fold_divu_magic(OptContext *ctx, TCGOp *op, uint64_t divisor)
      * Prefer the dedicated high-half multiply.  Some host backends only
      * expose the two-result multiply, so use its high output as a fallback.
      */
-    if (!tcg_can_emit_mul_highpart(ctx) ||
-        !tcg_unsigned_div_magic(divisor, bits, &m)) {
+    if (!tcg_can_emit_mul_highpart(ctx)) {
         return false;
     }
     q = arg_new_temp(ctx);
@@ -2026,7 +2024,7 @@ static bool fold_divu_magic(OptContext *ctx, TCGOp *op, uint64_t divisor)
         op2 = opt_insert_before(ctx, op, INDEX_op_muluh, 3);
         op2->args[0] = q;
         op2->args[1] = x;
-        op2->args[2] = arg_new_constant(ctx, m.magic);
+        op2->args[2] = arg_new_constant(ctx, m->magic);
         fold_mul_highpart(ctx, op2);
     } else {
         TCGArg low = arg_new_temp(ctx);
@@ -2035,11 +2033,11 @@ static bool fold_divu_magic(OptContext *ctx, TCGOp *op, uint64_t divisor)
         op2->args[0] = low;
         op2->args[1] = q;
         op2->args[2] = x;
-        op2->args[3] = arg_new_constant(ctx, m.magic);
+        op2->args[3] = arg_new_constant(ctx, m->magic);
         fold_multiply2(ctx, op2);
     }
 
-    if (m.add) {
+    if (m->add) {
         TCGArg delta = arg_new_temp(ctx);
 
         op2 = opt_insert_before(ctx, op, INDEX_op_sub, 3);
@@ -2063,8 +2061,18 @@ static bool fold_divu_magic(OptContext *ctx, TCGOp *op, uint64_t divisor)
 
     op->opc = INDEX_op_shr;
     op->args[1] = q;
-    op->args[2] = arg_new_constant(ctx, m.shift);
+    op->args[2] = arg_new_constant(ctx, m->shift);
     return fold_shift(ctx, op);
+}
+
+static bool fold_divu_magic(OptContext *ctx, TCGOp *op, uint64_t divisor)
+{
+    TCGUnsignedDivMagic m;
+
+    if (!tcg_unsigned_div_magic(divisor, tcg_type_bits(ctx->type), &m)) {
+        return false;
+    }
+    return fold_divu_magic_precomputed(ctx, op, &m);
 }
 
 /*
@@ -2169,7 +2177,7 @@ static bool fold_divs_magic(OptContext *ctx, TCGOp *op,
     divop->args[0] = quotient_abs;
     divop->args[1] = abs_x;
     divop->args[2] = arg_new_constant(ctx, magnitude);
-    if (!fold_divu_magic(ctx, divop, magnitude)) {
+    if (!fold_divu_magic_precomputed(ctx, divop, &m)) {
         return false;
     }
 
@@ -3110,7 +3118,7 @@ static bool fold_rem_magic(OptContext *ctx, TCGOp *op, uint64_t divisor)
     divop->args[0] = q;
     divop->args[1] = x;
     divop->args[2] = arg_new_constant(ctx, divisor);
-    if (!fold_divu_magic(ctx, divop, divisor)) {
+    if (!fold_divu_magic_precomputed(ctx, divop, &m)) {
         return false;
     }
 
