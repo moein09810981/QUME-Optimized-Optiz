@@ -2400,7 +2400,7 @@ static TCGConstraintSetIndex cset_muls2(TCGType type, unsigned flags)
         return C_O2_I2(r, r, r, r);
     }
     return type == TCG_TYPE_I64
-        ? C_O2_I2(&r, r, r, r) : C_NotImplemented;
+        ? C_N1_O1_I2(r, r, r, r) : C_NotImplemented;
 }
 
 static const TCGOutOpMul2 outop_muls2 = {
@@ -2457,7 +2457,7 @@ static TCGConstraintSetIndex cset_mulu2(TCGType type, unsigned flags)
         return C_O2_I2(r, r, r, r);
     }
     return type == TCG_TYPE_I64
-        ? C_O2_I2(&r, r, r, r) : C_NotImplemented;
+        ? C_N1_O1_I2(r, r, r, r) : C_NotImplemented;
 }
 
 static const TCGOutOpMul2 outop_mulu2 = {
