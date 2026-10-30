@@ -2493,7 +2493,7 @@ static const TCGOutOpBinary outop_muluh = {
 static void tgen_nand(TCGContext *s, TCGType type,
                       TCGReg a0, TCGReg a1, TCGReg a2)
 {
-    tcg_out_insn(s, logic_shift, BIC, type,
+    tcg_out_insn(s, logic_shift, ORN, type,
                  TCG_REG_TMP0, TCG_REG_XZR, a1);
     tcg_out_insn(s, logic_shift, ORN, type, a0, TCG_REG_TMP0, a2);
 }
