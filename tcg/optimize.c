@@ -2119,8 +2119,9 @@ static bool fold_divs_large(OptContext *ctx, TCGOp *op, uint64_t divisor)
  * abs(x) is formed with a sign mask:
  *     sign = x >> (bits - 1)
  *     abs  = (x ^ sign) - sign
- * The unsigned quotient is then conditionally negated with the same
- * two's-complement mask.  For remainder, x - quotient * divisor is used.
+ * For division, the unsigned quotient is conditionally negated with
+ * the appropriate two's-complement mask.  For remainder, compute the
+ * unsigned remainder of the absolute values and restore the dividend sign.
  */
 static bool fold_divs_magic(OptContext *ctx, TCGOp *op,
                             uint64_t divisor, bool remainder)
