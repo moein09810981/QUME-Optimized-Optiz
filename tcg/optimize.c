@@ -2691,12 +2691,13 @@ static bool fold_multiply2(OptContext *ctx, TCGOp *op)
             unsigned bits = tcg_type_bits(ctx->type);
             unsigned shift = ctz64(b);
             bool is_signed = op->opc == INDEX_op_muls2;
-            TCGArg high_tmp = arg_new_temp(ctx);
+            TCGArg high_tmp;
             TCGOpcode high_op = is_signed ? INDEX_op_sar : INDEX_op_shr;
 
             if (is_signed && (b & (UINT64_C(1) << (bits - 1)))) {
                 return finish_folding(ctx, op);
             }
+            high_tmp = arg_new_temp(ctx);
 
             op2 = opt_insert_before(ctx, op, high_op, 3);
             op2->args[0] = high_tmp;
