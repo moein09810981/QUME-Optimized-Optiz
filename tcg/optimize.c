@@ -2570,6 +2570,29 @@ static bool fold_mul(OptContext *ctx, TCGOp *op)
             op->args[2] = arg_new_constant(ctx, ctz64(m));
             return fold_shift(ctx, op);
         }
+
+        /*
+         * A negative power-of-two multiplier is a shift followed by
+         * negation.  Handle INT_MIN through the positive power-of-two
+         * case above, since its two's-complement magnitude is unchanged.
+         */
+        if (m & (UINT64_C(1) << (tcg_type_bits(ctx->type) - 1))) {
+            uint64_t magnitude =
+                (0 - m) & MAKE_64BIT_MASK(0, tcg_type_bits(ctx->type));
+
+            if (magnitude > 1 && is_power_of_2(magnitude)) {
+                TCGOp *op2;
+
+                op->opc = INDEX_op_shl;
+                op->args[2] = arg_new_constant(ctx, ctz64(magnitude));
+                fold_shift(ctx, op);
+
+                op2 = opt_insert_after(ctx, op, INDEX_op_neg, 2);
+                op2->args[0] = op->args[0];
+                op2->args[1] = op->args[0];
+                return fold_neg(ctx, op2);
+            }
+        }
     }
     return finish_folding(ctx, op);
 }
