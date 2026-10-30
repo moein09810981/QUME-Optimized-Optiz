@@ -659,8 +659,12 @@ typedef enum {
     Iqrr_e_CMLT0      = 0x0e20a800,
     Iqrr_e_CMGE0      = 0x2e208800,
     Iqrr_e_CMLE0      = 0x2e209800,
+    Iqrr_e_CNT        = 0x0e205800,
     Iqrr_e_NOT        = 0x2e205800,
     Iqrr_e_ABS        = 0x0e20b800,
+
+    /* AdvSIMD across-lanes.  */
+    Isimd_across_ADDV_B = 0x0e31b800,
     Iqrr_e_NEG        = 0x2e20b800,
 
     /* System instructions.  */
@@ -2272,12 +2276,27 @@ static const TCGOutOpBinary outop_clz = {
 
 static TCGConstraintSetIndex cset_ctpop(TCGType type, unsigned flags)
 {
-    return cpuinfo & CPUINFO_CSSC ? C_O1_I1(r, r) : C_NotImplemented;
+    return C_O1_I1(r, r);
 }
 
 static void tgen_ctpop(TCGContext *s, TCGType type, TCGReg a0, TCGReg a1)
 {
-    tcg_out_insn(s, rr_sf, CNT, type, a0, a1);
+    if (cpuinfo & CPUINFO_CSSC) {
+        tcg_out_insn(s, rr_sf, CNT, type, a0, a1);
+    } else {
+        /*
+         * AdvSIMD CNT counts bits in each byte; ADDV reduces the eight byte
+         * counts.  The reserved vector temporary is cleared first so that
+         * I32 inputs contribute four bytes and I64 inputs contribute eight.
+         */
+        TCGReg v = TCG_VEC_TMP0;
+
+        tcg_out_dupi_vec(s, TCG_TYPE_V128, MO_8, v, 0);
+        tcg_out_insn(s, simd_copy, INS, 0, v, a1, 4 << type, 0);
+        tcg_out_insn(s, qrr_e, CNT, 0, 0, v, v);
+        tcg_out32(s, Isimd_across_ADDV_B | (v & 0x1f) << 5 | (v & 0x1f));
+        tcg_out_insn(s, simd_copy, UMOV, 0, a0, v, 1, 0);
+    }
 }
 
 static const TCGOutOpUnary outop_ctpop = {
