@@ -1904,6 +1904,13 @@ static bool fold_divide(OptContext *ctx, TCGOp *op)
         return true;
     }
 
+    /* Signed division by -1 is two's-complement negation. */
+    if (op->opc == INDEX_op_divs &&
+        arg_is_const_val(op->args[2], -1)) {
+        op->opc = INDEX_op_neg;
+        return finish_folding(ctx, op);
+    }
+
     /*
      * Unsigned division by a power of two is an exact logical shift.
      * This avoids a hardware divide on targets without a cheaper
@@ -2234,6 +2241,10 @@ static bool fold_mul(OptContext *ctx, TCGOp *op)
 
         if (ctx->type == TCG_TYPE_I32) {
             m = (uint32_t)m;
+        }
+        if (m == (ctx->type == TCG_TYPE_I32 ? UINT32_MAX : UINT64_MAX)) {
+            op->opc = INDEX_op_neg;
+            return finish_folding(ctx, op);
         }
         if (is_power_of_2(m)) {
             op->opc = INDEX_op_shl;
