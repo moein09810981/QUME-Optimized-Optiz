@@ -3059,48 +3059,24 @@ static bool fold_rem_magic(OptContext *ctx, TCGOp *op, uint64_t divisor)
 {
     TCGUnsignedDivMagic m;
     unsigned bits = tcg_type_bits(ctx->type);
-    TCGArg x = op->args[1], q = arg_new_temp(ctx), product;
-    TCGOp *op2;
+    TCGArg x = op->args[1], q, product;
+    TCGOp *divop, *op2;
 
     /* Signed remainders are handled by fold_divs_magic/fold_rems_large. */
     if (op->opc == INDEX_op_rems ||
+        !tcg_can_emit_mul_highpart(ctx) ||
         !tcg_unsigned_div_magic(divisor, bits, &m)) {
         return false;
     }
 
-    op2 = opt_insert_before(ctx, op, INDEX_op_muluh, 3);
-    op2->args[0] = q;
-    op2->args[1] = x;
-    op2->args[2] = arg_new_constant(ctx, m.magic);
-    fold_mul_highpart(ctx, op2);
-
-    if (m.add) {
-        TCGArg delta = arg_new_temp(ctx);
-
-        op2 = opt_insert_before(ctx, op, INDEX_op_sub, 3);
-        op2->args[0] = delta;
-        op2->args[1] = x;
-        op2->args[2] = q;
-        fold_sub(ctx, op2);
-
-        op2 = opt_insert_before(ctx, op, INDEX_op_shr, 3);
-        op2->args[0] = delta;
-        op2->args[1] = delta;
-        op2->args[2] = arg_new_constant(ctx, 1);
-        fold_shift(ctx, op2);
-
-        op2 = opt_insert_before(ctx, op, INDEX_op_add, 3);
-        op2->args[0] = q;
-        op2->args[1] = q;
-        op2->args[2] = delta;
-        fold_add(ctx, op2);
+    q = arg_new_temp(ctx);
+    divop = opt_insert_before(ctx, op, INDEX_op_divu, 3);
+    divop->args[0] = q;
+    divop->args[1] = x;
+    divop->args[2] = arg_new_constant(ctx, divisor);
+    if (!fold_divu_magic(ctx, divop, divisor)) {
+        return false;
     }
-
-    op2 = opt_insert_before(ctx, op, INDEX_op_shr, 3);
-    op2->args[0] = q;
-    op2->args[1] = q;
-    op2->args[2] = arg_new_constant(ctx, m.shift);
-    fold_shift(ctx, op2);
 
     product = arg_new_temp(ctx);
     op2 = opt_insert_before(ctx, op, INDEX_op_mul, 3);
