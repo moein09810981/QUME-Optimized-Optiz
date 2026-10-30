@@ -1902,6 +1902,13 @@ static bool fold_neg(OptContext *ctx, TCGOp *op);
 static bool fold_sub(OptContext *ctx, TCGOp *op);
 static bool fold_mul_highpart(OptContext *ctx, TCGOp *op);
 static bool fold_mul(OptContext *ctx, TCGOp *op);
+static bool fold_multiply2(OptContext *ctx, TCGOp *op);
+
+static bool tcg_can_emit_mul_highpart(OptContext *ctx)
+{
+    return tcg_op_supported(INDEX_op_muluh, ctx->type, 0) ||
+           tcg_op_supported(INDEX_op_mulu2, ctx->type, 0);
+}
 
 /*
  * Generate libdivide-style unsigned magic for a constant divisor.
@@ -2004,20 +2011,31 @@ static bool fold_divu_magic(OptContext *ctx, TCGOp *op, uint64_t divisor)
     TCGOp *op2;
 
     /*
-     * muluh is not implemented by every TCG host backend.  Do not emit
-     * an opcode that the selected backend cannot lower.
+     * Prefer the dedicated high-half multiply.  Some host backends only
+     * expose the two-result multiply, so use its high output as a fallback.
      */
-    if (!tcg_op_supported(INDEX_op_muluh, ctx->type, 0) ||
+    if (!tcg_can_emit_mul_highpart(ctx) ||
         !tcg_unsigned_div_magic(divisor, bits, &m)) {
         return false;
     }
     q = arg_new_temp(ctx);
 
-    op2 = opt_insert_before(ctx, op, INDEX_op_muluh, 3);
-    op2->args[0] = q;
-    op2->args[1] = x;
-    op2->args[2] = arg_new_constant(ctx, m.magic);
-    fold_mul_highpart(ctx, op2);
+    if (tcg_op_supported(INDEX_op_muluh, ctx->type, 0)) {
+        op2 = opt_insert_before(ctx, op, INDEX_op_muluh, 3);
+        op2->args[0] = q;
+        op2->args[1] = x;
+        op2->args[2] = arg_new_constant(ctx, m.magic);
+        fold_mul_highpart(ctx, op2);
+    } else {
+        TCGArg low = arg_new_temp(ctx);
+
+        op2 = opt_insert_before(ctx, op, INDEX_op_mulu2, 4);
+        op2->args[0] = low;
+        op2->args[1] = q;
+        op2->args[2] = x;
+        op2->args[3] = arg_new_constant(ctx, m.magic);
+        fold_multiply2(ctx, op2);
+    }
 
     if (m.add) {
         TCGArg delta = arg_new_temp(ctx);
@@ -2073,7 +2091,7 @@ static bool fold_divs_magic(OptContext *ctx, TCGOp *op,
     TCGOp *op2, *divop;
 
     if (magnitude <= 1 || is_power_of_2(magnitude) ||
-        !tcg_op_supported(INDEX_op_muluh, ctx->type, 0) ||
+        !tcg_can_emit_mul_highpart(ctx) ||
         !tcg_unsigned_div_magic(magnitude, bits, &m)) {
         return false;
     }
