@@ -854,7 +854,6 @@ static int tcg_out_pool_finalize(TCGContext *s)
 #define C_O2_I3(O1, O2, I1, I2, I3)     C_PFX5(c_o2_i3_, O1, O2, I1, I2, I3),
 #define C_O2_I4(O1, O2, I1, I2, I3, I4) C_PFX6(c_o2_i4_, O1, O2, I1, I2, I3, I4)
 #define C_N1_O1_I2(O1, O2, I1, I2) C_PFX4(c_n1_o1_i2_, O1, O2, I1, I2),
-#define C_N1_O1_I2(O1, O2, I1, I2) C_PFX4(c_n1_o1_i2_, O1, O2, I1, I2),
 #define C_N1_O1_I4(O1, O2, I1, I2, I3, I4) C_PFX6(c_n1_o1_i4_, O1, O2, I1, I2, I3, I4),
 
 typedef enum {
@@ -953,6 +952,7 @@ static const TCGConstraintSet constraint_sets[] = {
 #define C_O2_I2(O1, O2, I1, I2)         C_PFX4(c_o2_i2_, O1, O2, I1, I2)
 #define C_O2_I3(O1, O2, I1, I2, I3)     C_PFX5(c_o2_i3_, O1, O2, I1, I2, I3)
 #define C_O2_I4(O1, O2, I1, I2, I3, I4) C_PFX6(c_o2_i4_, O1, O2, I1, I2, I3, I4)
+#define C_N1_O1_I2(O1, O2, I1, I2) C_PFX4(c_n1_o1_i2_, O1, O2, I1, I2)
 #define C_N1_O1_I4(O1, O2, I1, I2, I3, I4) C_PFX6(c_n1_o1_i4_, O1, O2, I1, I2, I3, I4)
 
 /*
