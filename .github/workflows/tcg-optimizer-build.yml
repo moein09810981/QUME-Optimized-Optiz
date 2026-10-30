@@ -1,0 +1,50 @@
+name: TCG optimizer build
+
+on:
+  push:
+    branches:
+      - android-arm64-tcg-optimization
+  pull_request:
+    branches:
+      - android-arm64-tcg-optimization
+
+jobs:
+  build-x86_64:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            pkg-config \
+            ninja-build \
+            python3-pip \
+            python3-venv \
+            libglib2.0-dev \
+            libpixman-1-dev
+
+      - name: Install Meson
+        run: python3 -m pip install --break-system-packages meson
+
+      - name: Configure QEMU
+        run: |
+          mkdir build
+          cd build
+          ../configure \
+            --target-list=x86_64-softmmu \
+            --enable-tcg \
+            --disable-docs \
+            --disable-werror \
+            --disable-tools \
+            --disable-slirp \
+            --disable-capstone
+
+      - name: Build QEMU
+        run: ninja -C build -j2
+
+      - name: Verify QEMU binary
+        run: ./build/qemu-system-x86_64 --version
