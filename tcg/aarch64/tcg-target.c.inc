@@ -2206,9 +2206,17 @@ static void tgen_andc(TCGContext *s, TCGType type,
     tcg_out_insn(s, logic_shift, BIC, type, a0, a1, a2);
 }
 
+static void tgen_andci(TCGContext *s, TCGType type,
+                       TCGReg a0, TCGReg a1, tcg_target_long a2)
+{
+    /* ANDC(a, imm) is AND(a, ~imm); complement remains a logical immediate. */
+    tcg_out_logicali(s, Ilogic_imm_ANDI, type, a0, a1, ~a2);
+}
+
 static const TCGOutOpBinary outop_andc = {
-    .base.static_constraint = C_O1_I2(r, r, r),
+    .base.static_constraint = C_O1_I2(r, r, rL),
     .out_rrr = tgen_andc,
+    .out_rri = tgen_andci,
 };
 
 static void tgen_clzctz(TCGContext *s, TCGType type, TCGReg a0, TCGReg a1,
@@ -2498,9 +2506,19 @@ static void tgen_nand(TCGContext *s, TCGType type,
     tcg_out_insn(s, logic_shift, ORN, type, a0, TCG_REG_TMP0, a2);
 }
 
+static void tgen_nandi(TCGContext *s, TCGType type,
+                       TCGReg a0, TCGReg a1, tcg_target_long a2)
+{
+    /* NAND(a, imm) = NOT(AND(a, imm)). */
+    tcg_out_logicali(s, Ilogic_imm_ANDI, type, TCG_REG_TMP0, a1, a2);
+    tcg_out_insn(s, logic_shift, ORN, type,
+                 a0, TCG_REG_XZR, TCG_REG_TMP0);
+}
+
 static const TCGOutOpBinary outop_nand = {
-    .base.static_constraint = C_O1_I2(r, r, r),
+    .base.static_constraint = C_O1_I2(r, r, rL),
     .out_rrr = tgen_nand,
+    .out_rri = tgen_nandi,
 };
 
 /*
@@ -2515,9 +2533,19 @@ static void tgen_nor(TCGContext *s, TCGType type,
     tcg_out_insn(s, logic_shift, BIC, type, a0, TCG_REG_TMP0, a2);
 }
 
+static void tgen_nori(TCGContext *s, TCGType type,
+                      TCGReg a0, TCGReg a1, tcg_target_long a2)
+{
+    /* NOR(a, imm) = NOT(OR(a, imm)). */
+    tcg_out_logicali(s, Ilogic_imm_ORRI, type, TCG_REG_TMP0, a1, a2);
+    tcg_out_insn(s, logic_shift, ORN, type,
+                 a0, TCG_REG_XZR, TCG_REG_TMP0);
+}
+
 static const TCGOutOpBinary outop_nor = {
-    .base.static_constraint = C_O1_I2(r, r, r),
+    .base.static_constraint = C_O1_I2(r, r, rL),
     .out_rrr = tgen_nor,
+    .out_rri = tgen_nori,
 };
 
 static void tgen_or(TCGContext *s, TCGType type,
@@ -2544,9 +2572,17 @@ static void tgen_orc(TCGContext *s, TCGType type,
     tcg_out_insn(s, logic_shift, ORN, type, a0, a1, a2);
 }
 
+static void tgen_orci(TCGContext *s, TCGType type,
+                      TCGReg a0, TCGReg a1, tcg_target_long a2)
+{
+    /* ORC(a, imm) is OR(a, ~imm); complement remains a logical immediate. */
+    tcg_out_logicali(s, Ilogic_imm_ORRI, type, a0, a1, ~a2);
+}
+
 static const TCGOutOpBinary outop_orc = {
-    .base.static_constraint = C_O1_I2(r, r, r),
+    .base.static_constraint = C_O1_I2(r, r, rL),
     .out_rrr = tgen_orc,
+    .out_rri = tgen_orci,
 };
 
 static void tgen_rems(TCGContext *s, TCGType type,
