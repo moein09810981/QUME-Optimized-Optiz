@@ -9,8 +9,16 @@ on:
       - android-arm64-tcg-optimization
 
 jobs:
-  build-x86_64:
-    runs-on: ubuntu-24.04
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: Check out source
         uses: actions/checkout@v4
