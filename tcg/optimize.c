@@ -1903,6 +1903,24 @@ static bool fold_divide(OptContext *ctx, TCGOp *op)
         fold_xi_to_x(ctx, op, 1)) {
         return true;
     }
+
+    /*
+     * Unsigned division by a power of two is an exact logical shift.
+     * This avoids a hardware divide on targets without a cheaper
+     * immediate-divide instruction.
+     */
+    if (op->opc == INDEX_op_divu && arg_is_const(op->args[2])) {
+        uint64_t d = arg_const_val(op->args[2]);
+
+        if (ctx->type == TCG_TYPE_I32) {
+            d = (uint32_t)d;
+        }
+        if (is_power_of_2(d)) {
+            op->opc = INDEX_op_shr;
+            op->args[2] = arg_new_constant(ctx, ctz64(d));
+            return finish_folding(ctx, op);
+        }
+    }
     return finish_folding(ctx, op);
 }
 
@@ -2465,6 +2483,20 @@ static bool fold_remainder(OptContext *ctx, TCGOp *op)
     if (fold_const2(ctx, op) ||
         fold_xx_to_i(ctx, op, 0)) {
         return true;
+    }
+
+    /* Unsigned remainder by 2^n is the low n bits. */
+    if (op->opc == INDEX_op_remu && arg_is_const(op->args[2])) {
+        uint64_t d = arg_const_val(op->args[2]);
+
+        if (ctx->type == TCG_TYPE_I32) {
+            d = (uint32_t)d;
+        }
+        if (is_power_of_2(d)) {
+            op->opc = INDEX_op_and;
+            op->args[2] = arg_new_constant(ctx, d - 1);
+            return finish_folding(ctx, op);
+        }
     }
     return finish_folding(ctx, op);
 }
