@@ -1913,16 +1913,44 @@ typedef struct TCGUnsignedDivMagic {
     bool add;
 } TCGUnsignedDivMagic;
 
+/*
+ * Divide the 128-bit value 2^bit by a 64-bit divisor.  The quotient
+ * fits in 64 bits for the bit positions used by the magic generator.
+ * This keeps 64-bit constant division available on 32-bit hosts that
+ * do not provide a native __int128 type.
+ */
+static uint64_t tcg_div_pow2_u128_u64(uint64_t d, unsigned bit,
+                                      uint64_t *remainder)
+{
+    uint64_t quotient = 0, rem = 0;
+    int i;
+
+    for (i = bit; i >= 0; --i) {
+        uint64_t carry = rem >> 63;
+        unsigned input = (i == (int)bit);
+
+        rem = (rem << 1) | input;
+        quotient <<= 1;
+        if (carry || rem >= d) {
+            rem -= d;
+            quotient |= 1;
+        }
+    }
+    *remainder = rem;
+    return quotient;
+}
+
 static bool tcg_unsigned_div_magic(uint64_t d, unsigned bits,
                                    TCGUnsignedDivMagic *m)
 {
     unsigned floor_log;
+    uint64_t proposed, rem, e;
 
     if (d <= 1 || (bits != 32 && bits != 64)) {
         return false;
     }
     if (bits == 32) {
-        uint64_t numerator, proposed, rem, e;
+        uint64_t numerator;
 
         d = (uint32_t)d;
         if (is_power_of_2(d)) {
@@ -1937,49 +1965,28 @@ static bool tcg_unsigned_div_magic(uint64_t d, unsigned bits,
         numerator = UINT64_C(1) << (bits + floor_log);
         proposed = numerator / d;
         rem = numerator % d;
-        e = d - rem;
-
-        m->add = e >= (UINT64_C(1) << floor_log);
-        if (m->add) {
-            proposed *= 2;
-            if (rem * 2 >= d) {
-                proposed++;
-            }
-        }
-        m->magic = (uint32_t)(proposed + 1);
-        m->shift = floor_log;
-        return m->magic != 0;
-    }
-
-#if defined(CONFIG_INT128)
-    {
-        __uint128_t numerator, proposed, rem, e, twice_rem;
-
+    } else {
         if (is_power_of_2(d)) {
             return false;
         }
-
         floor_log = 63 - clz64(d);
-        numerator = (__uint128_t)1 << (bits + floor_log);
-        proposed = numerator / d;
-        rem = numerator % d;
-        e = d - rem;
-
-        m->add = e >= ((__uint128_t)1 << floor_log);
-        if (m->add) {
-            proposed *= 2;
-            twice_rem = rem * 2;
-            if (twice_rem >= d) {
-                proposed++;
-            }
-        }
-        m->magic = (uint64_t)(proposed + 1);
-        m->shift = floor_log;
-        return m->magic != 0;
+        proposed = tcg_div_pow2_u128_u64(d, bits + floor_log, &rem);
     }
-#else
-    return false;
-#endif
+    e = d - rem;
+
+    m->add = e >= (UINT64_C(1) << floor_log);
+    if (m->add) {
+        proposed *= 2;
+        if (rem > d / 2 || (!(d & 1) && rem == d / 2)) {
+            proposed++;
+        }
+    }
+    m->magic = proposed + 1;
+    if (bits == 32) {
+        m->magic = (uint32_t)m->magic;
+    }
+    m->shift = floor_log;
+    return m->magic != 0;
 }
 
 /*
