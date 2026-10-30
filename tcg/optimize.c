@@ -2059,9 +2059,7 @@ static bool fold_divs_magic(OptContext *ctx, TCGOp *op,
     bool negative = (d >> (bits - 1)) != 0;
     uint64_t magnitude = negative ? (0 - d) & type_mask : d;
     TCGArg x = op->args[1];
-    TCGArg sign = arg_new_temp(ctx);
-    TCGArg abs_x = arg_new_temp(ctx);
-    TCGArg quotient_abs = arg_new_temp(ctx);
+    TCGArg sign, abs_x, quotient_abs;
     TCGArg quotient_sign, quotient_xor;
     TCGOp *op2, *divop;
 
@@ -2070,6 +2068,10 @@ static bool fold_divs_magic(OptContext *ctx, TCGOp *op,
         !tcg_unsigned_div_magic(magnitude, bits, &m)) {
         return false;
     }
+
+    sign = arg_new_temp(ctx);
+    abs_x = arg_new_temp(ctx);
+    quotient_abs = arg_new_temp(ctx);
 
     op2 = opt_insert_before(ctx, op, INDEX_op_sar, 3);
     op2->args[0] = sign;
@@ -2093,7 +2095,9 @@ static bool fold_divs_magic(OptContext *ctx, TCGOp *op,
     divop->args[0] = quotient_abs;
     divop->args[1] = abs_x;
     divop->args[2] = arg_new_constant(ctx, magnitude);
-    tcg_debug_assert(fold_divu_magic(ctx, divop, magnitude));
+    if (!fold_divu_magic(ctx, divop, magnitude)) {
+        return false;
+    }
 
     quotient_sign = sign;
     if (negative) {
