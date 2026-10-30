@@ -2224,6 +2224,23 @@ static bool fold_mul(OptContext *ctx, TCGOp *op)
         fold_xi_to_x(ctx, op, 1)) {
         return true;
     }
+
+    /*
+     * Multiplication by 2^n is an exact left shift for both signed and
+     * unsigned TCG integers (the result is modulo the type width).
+     */
+    if (arg_is_const(op->args[2])) {
+        uint64_t m = arg_const_val(op->args[2]);
+
+        if (ctx->type == TCG_TYPE_I32) {
+            m = (uint32_t)m;
+        }
+        if (is_power_of_2(m)) {
+            op->opc = INDEX_op_shl;
+            op->args[2] = arg_new_constant(ctx, ctz64(m));
+            return finish_folding(ctx, op);
+        }
+    }
     return finish_folding(ctx, op);
 }
 
