@@ -1901,6 +1901,105 @@ static bool fold_shift(OptContext *ctx, TCGOp *op);
 static bool fold_neg(OptContext *ctx, TCGOp *op);
 static bool fold_sub(OptContext *ctx, TCGOp *op);
 
+/*
+ * Generate libdivide-style unsigned magic for a constant divisor.
+ * The calculation runs in the host optimizer, not in generated guest code.
+ */
+typedef struct TCGUnsignedDivMagic {
+    uint64_t magic;
+    unsigned shift;
+    bool add;
+} TCGUnsignedDivMagic;
+
+static bool tcg_unsigned_div_magic(uint64_t d, unsigned bits,
+                                   TCGUnsignedDivMagic *m)
+{
+#if defined(CONFIG_INT128)
+    unsigned floor_log;
+    __uint128_t numerator, proposed, rem, e, twice_rem;
+
+    if (d <= 1 || (bits != 32 && bits != 64)) {
+        return false;
+    }
+    if (bits == 32) {
+        d = (uint32_t)d;
+    }
+    if (is_power_of_2(d)) {
+        return false;
+    }
+
+    floor_log = bits - 1 - clz64(d);
+    numerator = (__uint128_t)1 << (bits + floor_log);
+    proposed = numerator / d;
+    rem = numerator % d;
+    e = d - rem;
+
+    m->add = e >= ((__uint128_t)1 << floor_log);
+    if (m->add) {
+        proposed *= 2;
+        twice_rem = rem * 2;
+        if (twice_rem >= d) {
+            proposed++;
+        }
+    }
+    m->magic = (uint64_t)(proposed + 1);
+    m->shift = floor_log;
+    return m->magic != 0;
+#else
+    return false;
+#endif
+}
+
+/*
+ * Replace unsigned division by a non-power-of-two constant with a
+ * high-half multiply and shifts.  The add-marker path implements the
+ * 65-bit reciprocal without requiring a wider guest integer.
+ */
+static bool fold_divu_magic(OptContext *ctx, TCGOp *op, uint64_t divisor)
+{
+    TCGUnsignedDivMagic m;
+    unsigned bits = tcg_type_bits(ctx->type);
+    TCGArg x = op->args[1], q = arg_new_temp(ctx);
+    TCGOp *op2;
+
+    if (!tcg_unsigned_div_magic(divisor, bits, &m)) {
+        return false;
+    }
+
+    op2 = opt_insert_before(ctx, op, INDEX_op_muluh, 3);
+    op2->args[0] = q;
+    op2->args[1] = x;
+    op2->args[2] = arg_new_constant(ctx, m.magic);
+    fold_mul_highpart(ctx, op2);
+
+    if (m.add) {
+        TCGArg delta = arg_new_temp(ctx);
+
+        op2 = opt_insert_before(ctx, op, INDEX_op_sub, 3);
+        op2->args[0] = delta;
+        op2->args[1] = x;
+        op2->args[2] = q;
+        fold_sub(ctx, op2);
+
+        op2 = opt_insert_before(ctx, op, INDEX_op_shr, 3);
+        op2->args[0] = delta;
+        op2->args[1] = delta;
+        op2->args[2] = arg_new_constant(ctx, 1);
+        fold_shift(ctx, op2);
+
+        op2 = opt_insert_before(ctx, op, INDEX_op_add, 3);
+        op2->args[0] = q;
+        op2->args[1] = q;
+        op2->args[2] = delta;
+        fold_add(ctx, op2);
+    }
+
+    op->opc = INDEX_op_shr;
+    op->args[1] = q;
+    op->args[2] = arg_new_constant(ctx, m.shift);
+    return fold_shift(ctx, op);
+}
+
 static bool fold_divide(OptContext *ctx, TCGOp *op)
 {
     if (fold_const2(ctx, op) ||
@@ -1993,6 +2092,9 @@ static bool fold_divide(OptContext *ctx, TCGOp *op)
             op->opc = INDEX_op_shr;
             op->args[2] = arg_new_constant(ctx, ctz64(d));
             return fold_shift(ctx, op);
+        }
+        if (d > 1 && fold_divu_magic(ctx, op, d)) {
+            return true;
         }
     }
     return finish_folding(ctx, op);
