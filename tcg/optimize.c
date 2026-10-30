@@ -2319,6 +2319,33 @@ static bool fold_mul_highpart(OptContext *ctx, TCGOp *op)
         fold_xi_to_i(ctx, op, 0)) {
         return true;
     }
+
+    if (arg_is_const(op->args[2])) {
+        unsigned bits = tcg_type_bits(ctx->type);
+        uint64_t m = arg_const_val(op->args[2]);
+
+        if (ctx->type == TCG_TYPE_I32) {
+            m = (uint32_t)m;
+        }
+
+        if (op->opc == INDEX_op_muluh) {
+            if (m == 1) {
+                return tcg_opt_gen_movi(ctx, op, op->args[0], 0);
+            }
+            if (is_power_of_2(m)) {
+                op->opc = INDEX_op_shr;
+                op->args[2] = arg_new_constant(ctx, bits - ctz64(m));
+                return finish_folding(ctx, op);
+            }
+        } else if (op->opc == INDEX_op_mulsh &&
+                   !(m & (UINT64_C(1) << (bits - 1))) &&
+                   is_power_of_2(m)) {
+            unsigned shift = bits - MAX(ctz64(m), 1);
+            op->opc = INDEX_op_sar;
+            op->args[2] = arg_new_constant(ctx, shift);
+            return finish_folding(ctx, op);
+        }
+    }
     return finish_folding(ctx, op);
 }
 
