@@ -1943,7 +1943,7 @@ static bool tcg_unsigned_div_magic(uint64_t d, unsigned bits,
             proposed++;
         }
     }
-    m->magic = (uint64_t)(proposed + 1);
+    m->magic = (uint64_t)(proposed + 1) & MAKE_64BIT_MASK(0, bits);
     m->shift = floor_log;
     return m->magic != 0;
 #else
