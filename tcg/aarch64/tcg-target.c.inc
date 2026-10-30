@@ -2369,13 +2369,13 @@ static const TCGOutOpBinary outop_mul = {
 };
 
 /*
- * AArch64 has separate low- and high-half multiply instructions.  Emit
- * both directly so TCG does not need a temporary plus a separate move
- * when lowering the two-result operation.
+ * For 32-bit operands, SMADDL/UMADDL produce the complete 64-bit product,
+ * from which both words can be extracted.  For 64-bit operands, emit the
+ * low and high products with MADD plus SMULH/UMULH directly.
  *
- * The low result is written before the high multiply reads its operands,
- * so it must not overlap either input.  The high result is written by the
- * second instruction and may overlap an input.
+ * In the 64-bit case, the low result is written before the high multiply
+ * reads its operands, so it must not overlap either input.  The high result
+ * is written by the second instruction and may overlap an input.
  */
 static void tgen_muls2(TCGContext *s, TCGType type,
                        TCGReg rl, TCGReg rh, TCGReg a, TCGReg b)
