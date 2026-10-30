@@ -2546,8 +2546,32 @@ static const TCGOutOpBinary outop_remu = {
     .out_rrr = tgen_remu,
 };
 
+/*
+ * AArch64 exposes rotate-right, but not a separate rotate-left instruction.
+ * Express ROL(x, n) as ROR(x, -n).  Keep the negated count in the reserved
+ * scratch register so the operation does not need an allocator-visible TCG
+ * temporary.  Immediate counts map directly to EXTR with the complementary
+ * rotation amount and therefore still emit a single instruction.
+ */
+static void tgen_rotl(TCGContext *s, TCGType type,
+                      TCGReg a0, TCGReg a1, TCGReg a2)
+{
+    tcg_out_insn(s, addsub_shift, SUB, type,
+                 TCG_REG_TMP0, TCG_REG_XZR, a2);
+    tcg_out_insn(s, rrr, RORV, type, a0, a1, TCG_REG_TMP0);
+}
+
+static void tgen_rotli(TCGContext *s, TCGType type,
+                       TCGReg a0, TCGReg a1, tcg_target_long a2)
+{
+    int max = type == TCG_TYPE_I32 ? 31 : 63;
+    tcg_out_extr(s, type, a0, a1, a1, -a2 & max);
+}
+
 static const TCGOutOpBinary outop_rotl = {
-    .base.static_constraint = C_NotImplemented,
+    .base.static_constraint = C_O1_I2(r, r, ri),
+    .out_rrr = tgen_rotl,
+    .out_rri = tgen_rotli,
 };
 
 static void tgen_rotr(TCGContext *s, TCGType type,
