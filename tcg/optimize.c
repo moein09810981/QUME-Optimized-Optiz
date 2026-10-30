@@ -3005,8 +3005,8 @@ static bool fold_rems_large(OptContext *ctx, TCGOp *op, uint64_t divisor)
     unsigned bits = tcg_type_bits(ctx->type);
     uint64_t type_mask = MAKE_64BIT_MASK(0, bits);
     uint64_t d = divisor & type_mask;
-    bool negative = (d >> (bits - 1)) != 0;
-    uint64_t magnitude = negative ? (0 - d) & type_mask : d;
+    uint64_t magnitude = (d >> (bits - 1))
+        ? (0 - d) & type_mask : d;
     TCGArg x = op->args[1];
     TCGArg positive_diff, negative_sum, middle;
     TCGOp *op2;
