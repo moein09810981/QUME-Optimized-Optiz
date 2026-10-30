@@ -2485,12 +2485,39 @@ static const TCGOutOpBinary outop_muluh = {
     .out_rrr = tgen_muluh,
 };
 
+/*
+ * NAND = ~a | ~b.  Materialize ~a in the reserved scratch register, then
+ * use ORN for the final result.  This avoids an allocator-visible temporary
+ * and remains safe when the destination aliases either input.
+ */
+static void tgen_nand(TCGContext *s, TCGType type,
+                      TCGReg a0, TCGReg a1, TCGReg a2)
+{
+    tcg_out_insn(s, logic_shift, BIC, type,
+                 TCG_REG_TMP0, TCG_REG_XZR, a1);
+    tcg_out_insn(s, logic_shift, ORN, type, a0, TCG_REG_TMP0, a2);
+}
+
 static const TCGOutOpBinary outop_nand = {
-    .base.static_constraint = C_NotImplemented,
+    .base.static_constraint = C_O1_I2(r, r, r),
+    .out_rrr = tgen_nand,
 };
 
+/*
+ * NOR = ~a & ~b.  ORN with XZR forms ~a; BIC then combines it with ~b.
+ * TMP0 is reserved by the backend, so no extra TCG temporary is required.
+ */
+static void tgen_nor(TCGContext *s, TCGType type,
+                     TCGReg a0, TCGReg a1, TCGReg a2)
+{
+    tcg_out_insn(s, logic_shift, ORN, type,
+                 TCG_REG_TMP0, TCG_REG_XZR, a1);
+    tcg_out_insn(s, logic_shift, BIC, type, a0, TCG_REG_TMP0, a2);
+}
+
 static const TCGOutOpBinary outop_nor = {
-    .base.static_constraint = C_NotImplemented,
+    .base.static_constraint = C_O1_I2(r, r, r),
+    .out_rrr = tgen_nor,
 };
 
 static void tgen_or(TCGContext *s, TCGType type,
@@ -2898,8 +2925,20 @@ static const TCGOutOpUnary outop_bswap64 = {
     .out_rr = tgen_bswap64,
 };
 
+/*
+ * RBIT reverses the complete bit string; REV then restores byte order,
+ * yielding an independent bit reversal inside each byte.
+ */
+static void tgen_revbit8(TCGContext *s, TCGType type,
+                         TCGReg a0, TCGReg a1)
+{
+    tcg_out_insn(s, rr_sf, RBIT, type, a0, a1);
+    tcg_out_rev(s, type, type == TCG_TYPE_I32 ? MO_32 : MO_64, a0, a0);
+}
+
 static const TCGOutOpUnary outop_revbit8 = {
-    .base.static_constraint = C_NotImplemented,
+    .base.static_constraint = C_O1_I1(r, r),
+    .out_rr = tgen_revbit8,
 };
 
 static void tgen_revbit32(TCGContext *s, TCGType type,
