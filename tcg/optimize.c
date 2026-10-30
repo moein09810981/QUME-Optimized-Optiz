@@ -1897,6 +1897,8 @@ static bool fold_deposit(OptContext *ctx, TCGOp *op)
     return fold_masks_zos(ctx, op, z_mask, o_mask, s_mask);
 }
 
+static bool fold_shift(OptContext *ctx, TCGOp *op);
+
 static bool fold_divide(OptContext *ctx, TCGOp *op)
 {
     if (fold_const2(ctx, op) ||
@@ -1939,16 +1941,19 @@ static bool fold_divide(OptContext *ctx, TCGOp *op)
             op2->args[0] = bias;
             op2->args[1] = x;
             op2->args[2] = arg_new_constant(ctx, bits - 1);
+            fold_shift(ctx, op2);
 
             op2 = opt_insert_before(ctx, op, INDEX_op_and, 3);
             op2->args[0] = bias;
             op2->args[1] = bias;
             op2->args[2] = arg_new_constant(ctx, magnitude - 1);
+            fold_and(ctx, op2);
 
             op2 = opt_insert_before(ctx, op, INDEX_op_add, 3);
             op2->args[0] = sum;
             op2->args[1] = x;
             op2->args[2] = bias;
+            fold_add(ctx, op2);
 
             if (negative) {
                 TCGArg quotient = arg_new_temp(ctx);
@@ -1957,6 +1962,7 @@ static bool fold_divide(OptContext *ctx, TCGOp *op)
                 op2->args[0] = quotient;
                 op2->args[1] = sum;
                 op2->args[2] = arg_new_constant(ctx, ctz64(magnitude));
+                fold_shift(ctx, op2);
 
                 op->opc = INDEX_op_neg;
                 op->args[1] = quotient;
