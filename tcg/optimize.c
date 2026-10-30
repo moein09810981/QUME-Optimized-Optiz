@@ -2180,7 +2180,7 @@ static bool fold_divs_magic(OptContext *ctx, TCGOp *op,
         /*
          * The signed remainder has the dividend's sign, independent of
          * the divisor's sign.  Compute it from |x| and |d| directly,
-         * avoiding signed-quotient correction and multiplication.
+         * avoiding signed-quotient correction and signed multiply.
          */
         op2 = opt_insert_before(ctx, op, INDEX_op_mul, 3);
         op2->args[0] = product;
