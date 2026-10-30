@@ -2378,6 +2378,7 @@ static const TCGOutOpBinary outop_mul = {
 static void tgen_muls2(TCGContext *s, TCGType type,
                        TCGReg rl, TCGReg rh, TCGReg a, TCGReg b)
 {
+    tcg_debug_assert(type == TCG_TYPE_I64);
     tcg_out_insn(s, rrrr, MADD, TCG_TYPE_I64, rl, a, b, TCG_REG_XZR);
     tcg_out_insn(s, rrr, SMULH, TCG_TYPE_I64, rh, a, b);
 }
@@ -2413,6 +2414,7 @@ static const TCGOutOpBinary outop_mulsh = {
 static void tgen_mulu2(TCGContext *s, TCGType type,
                        TCGReg rl, TCGReg rh, TCGReg a, TCGReg b)
 {
+    tcg_debug_assert(type == TCG_TYPE_I64);
     tcg_out_insn(s, rrrr, MADD, TCG_TYPE_I64, rl, a, b, TCG_REG_XZR);
     tcg_out_insn(s, rrr, UMULH, TCG_TYPE_I64, rh, a, b);
 }
