@@ -12,7 +12,12 @@
 #include "qemu/rcu.h"
 #include "exec/cpu-common.h"
 
-#define TB_JMP_CACHE_BITS 12
+/*
+ * Optimized: 14 bits (16384 entries, ~256 KiB per vCPU) instead of the
+ * upstream default of 12. Fewer jump-cache misses on large guest working
+ * sets, which means fewer slow-path tb_lookup() calls under TCG.
+ */
+#define TB_JMP_CACHE_BITS 14
 #define TB_JMP_CACHE_SIZE (1 << TB_JMP_CACHE_BITS)
 
 /*
