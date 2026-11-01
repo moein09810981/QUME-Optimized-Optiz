@@ -3,6 +3,7 @@
 # Run from the QEMU source root: bash scripts/build-android-arm64-tcg.sh
 # Optional environment variables:
 #   BUILD_DIR=... JOBS=2 LEAN_DEVICES=1 EXTRA_CFLAGS="-O3" HOST_CPU_FLAGS=""
+#   TARGET_LIST="x86_64-softmmu,aarch64-softmmu"
 set -Eeuo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -11,6 +12,9 @@ JOBS="${JOBS:-2}"
 LEAN_DEVICES="${LEAN_DEVICES:-0}"
 EXTRA_CFLAGS="${EXTRA_CFLAGS:--O3}"
 HOST_CPU_FLAGS="${HOST_CPU_FLAGS:-}"
+# aarch64-softmmu is the fast path on ARM64 hosts (no ISA translation needed,
+# e.g. Alpine ARM64 guest). x86_64-softmmu is kept for Windows/x86 guests.
+TARGET_LIST="${TARGET_LIST:-x86_64-softmmu,aarch64-softmmu}"
 
 for tool in clang meson ninja pkg-config python; do
     command -v "$tool" >/dev/null 2>&1 || {
@@ -31,14 +35,14 @@ if [[ "$LEAN_DEVICES" != "0" && "$LEAN_DEVICES" != "1" ]]; then
     exit 2
 fi
 
-printf 'Source: %s\nBuild:  %s\nJobs:   %s\nLean devices: %s\nCFLAGS: %s\n' \
-    "$ROOT" "$BUILD_DIR" "$JOBS" "$LEAN_DEVICES" "$EXTRA_CFLAGS"
+printf 'Source: %s\nBuild:  %s\nJobs:   %s\nTargets: %s\nLean devices: %s\nCFLAGS: %s\n' \
+    "$ROOT" "$BUILD_DIR" "$JOBS" "$TARGET_LIST" "$LEAN_DEVICES" "$EXTRA_CFLAGS"
 
 mkdir -p "$BUILD_DIR"
 cd "$BUILD_DIR"
 
 CONFIGURE_ARGS=(
-    --target-list=x86_64-softmmu
+    --target-list="$TARGET_LIST"
     --enable-tcg
     -Dbuildtype=release
     -Db_lto=true
@@ -58,6 +62,11 @@ fi
 
 ninja -j "$JOBS"
 
-printf '\nBuild completed. Verify the host binary before attempting a guest boot:\n'
-./qemu-system-x86_64 --version
-./qemu-system-x86_64 -accel help
+printf '\nBuild completed. Verify the host binaries before attempting a guest boot:\n'
+for target in ${TARGET_LIST//,/ }; do
+    bin="./qemu-system-${target%-softmmu}"
+    if [[ -x "$bin" ]]; then
+        "$bin" --version
+        "$bin" -accel help
+    fi
+done
