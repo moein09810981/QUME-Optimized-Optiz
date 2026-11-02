@@ -20,6 +20,12 @@
 #   JOBS          default 2 (phones throttle; raise only with cooling)
 #   HOST_CPU_FLAGS  override auto-detected flags, e.g. "-march=armv8.2-a -mtune=cortex-a76"
 #   LEAN_DEVICES  1 = -Ddefault_devices=false (Linux virtio guests only)
+#   MALLOC        jemalloc | tcmalloc | system  (--enable-malloc; default: unset)
+#                 Note: modern Android bionic already uses scudo, so measure
+#                 before assuming jemalloc wins. Needs the matching Termux pkg.
+#   Builds with LEAN_DEVICES/MALLOC set go to separate build/out dirs
+#   (e.g. out/plain-lean, out/plain-jemalloc) so they can be benchmarked
+#   side by side against the default build.
 #   PGO_DIR       default <root>/pgo-data
 set -Eeuo pipefail
 
@@ -28,6 +34,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TARGET_LIST="${TARGET_LIST:-aarch64-softmmu}"
 JOBS="${JOBS:-2}"
 LEAN_DEVICES="${LEAN_DEVICES:-0}"
+MALLOC="${MALLOC:-}"
 PGO_DIR="${PGO_DIR:-$ROOT/pgo-data}"
 OUT_DIR="${OUT_DIR:-$ROOT/out}"
 
@@ -98,6 +105,7 @@ for tool in clang meson ninja pkg-config python; do
 done
 pkg-config --exists glib-2.0 pixman-1 || die "missing glib-2.0 / pixman-1 dev packages (run: $0 deps)"
 [[ "$LEAN_DEVICES" == "0" || "$LEAN_DEVICES" == "1" ]] || die "LEAN_DEVICES must be 0 or 1"
+case "$MALLOC" in ""|system|jemalloc|tcmalloc) ;; *) die "MALLOC must be system, jemalloc or tcmalloc" ;; esac
 
 # ---- merge profiles -------------------------------------------------------
 if [[ "$MODE" == "merge" ]]; then
@@ -139,7 +147,11 @@ use)
     ;;
 esac
 
-BUILD_DIR="${BUILD_DIR:-$ROOT/build-android-max-$MODE}"
+TAG="$MODE"
+[[ "$LEAN_DEVICES" == "1" ]] && TAG="$TAG-lean"
+[[ -n "$MALLOC" ]] && TAG="$TAG-$MALLOC"
+
+BUILD_DIR="${BUILD_DIR:-$ROOT/build-android-max-$TAG}"
 mkdir -p "$BUILD_DIR"
 cd "$BUILD_DIR"
 
@@ -166,20 +178,21 @@ ARGS=(
     --extra-ldflags="$LDFLAGS_EXTRA $PGO_LDFLAGS"
 )
 [[ "$LEAN_DEVICES" == "1" ]] && ARGS+=(-Ddefault_devices=false)
+[[ -n "$MALLOC" ]] && ARGS+=(--enable-malloc="$MALLOC")
 
 "$ROOT/configure" "${ARGS[@]}"
 ninja -j "$JOBS"
 
 # Collect binaries.
-mkdir -p "$OUT_DIR/$MODE"
+mkdir -p "$OUT_DIR/$TAG"
 for t in ${TARGET_LIST//,/ }; do
     bin="qemu-system-${t%-softmmu}"
     if [[ -x "./$bin" ]]; then
-        cp -f "./$bin" "$OUT_DIR/$MODE/$bin"
-        strip --strip-unneeded "$OUT_DIR/$MODE/$bin" 2>/dev/null || true
-        "$OUT_DIR/$MODE/$bin" --version | head -n1
+        cp -f "./$bin" "$OUT_DIR/$TAG/$bin"
+        strip --strip-unneeded "$OUT_DIR/$TAG/$bin" 2>/dev/null || true
+        "$OUT_DIR/$TAG/$bin" --version | head -n1
     fi
 done
-echo "Binaries in: $OUT_DIR/$MODE"
+echo "Binaries in: $OUT_DIR/$TAG"
 [[ "$MODE" == "generate" ]] && echo "Next: boot your guest with the instrumented binary, shut it down cleanly, then run: $0 merge && $0 use"
 exit 0
