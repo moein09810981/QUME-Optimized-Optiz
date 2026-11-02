@@ -85,9 +85,21 @@ detect_cpu_flags() {
 case "$MODE" in
 deps)
     pkg update -y
-    pkg install -y clang lld llvm make ninja python pkg-config git \
-        glib pixman libslirp zlib libpng libjpeg-turbo flex bison
-    pip install --upgrade meson tomli 2>/dev/null || true
+    # Install one by one so a single wrong/missing package name does not
+    # abort everything (Termux names: pixman is "libpixman").
+    missing=()
+    for p in clang lld llvm make ninja python pkg-config git glib libpixman \
+             libslirp zlib libpng libjpeg-turbo flex bison meson; do
+        pkg install -y "$p" || missing+=("$p")
+    done
+    if ! command -v meson >/dev/null 2>&1; then
+        pip install --upgrade meson tomli || missing+=("meson(pip)")
+    fi
+    if ((${#missing[@]})); then
+        echo "Could NOT install: ${missing[*]}" >&2
+        echo "Search the right name with: pkg search <name>" >&2
+        exit 1
+    fi
     echo "Dependencies installed."
     exit 0
     ;;
