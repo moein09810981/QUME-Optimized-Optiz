@@ -88,10 +88,11 @@ deps)
     # Install one by one so a single wrong/missing package name does not
     # abort everything (Termux names: pixman is "libpixman").
     missing=()
-    for p in clang lld llvm make ninja python pkg-config git glib libpixman \
-             libslirp zlib libpng libjpeg-turbo flex bison meson; do
+    for p in clang lld llvm make ninja python python-pip pkg-config git glib \
+             libpixman libslirp zlib libpng libjpeg-turbo flex bison; do
         pkg install -y "$p" || missing+=("$p")
     done
+    # meson is not a Termux package; install it with pip.
     if ! command -v meson >/dev/null 2>&1; then
         pip install --upgrade meson tomli || missing+=("meson(pip)")
     fi
