@@ -195,8 +195,18 @@ ARGS=(
 [[ "$LEAN_DEVICES" == "1" ]] && ARGS+=(-Ddefault_devices=false)
 [[ -n "$MALLOC" ]] && ARGS+=(--enable-malloc="$MALLOC")
 
+# Android/bionic source fixes (idempotent), see scripts/android-compat.py
+python "$ROOT/scripts/android-compat.py"
+
 "$ROOT/configure" "${ARGS[@]}"
-ninja -j "$JOBS"
+
+# -k 0: keep going after a failure so ONE run reports all compile errors.
+if ! ninja -k 0 -j "$JOBS" 2>&1 | tee "$BUILD_DIR/build.log"; then
+    echo
+    echo "=== Build failed. Distinct errors (full log: $BUILD_DIR/build.log) ==="
+    grep -E "error:|FAILED:" "$BUILD_DIR/build.log" | sort -u | head -n 60 || true
+    exit 1
+fi
 
 # Collect binaries.
 mkdir -p "$OUT_DIR/$TAG"
