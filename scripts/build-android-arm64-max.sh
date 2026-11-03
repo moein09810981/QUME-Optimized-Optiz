@@ -87,9 +87,11 @@ deps)
     pkg update -y
     # Install one by one so a single wrong/missing package name does not
     # abort everything (Termux names: pixman is "libpixman").
+    # dtc provides libfdt, which aarch64-softmmu needs; without it QEMU tries
+    # to download the dtc subproject from gitlab (which may be blocked).
     missing=()
     for p in clang lld llvm make ninja python python-pip pkg-config git glib \
-             libpixman libslirp zlib libpng libjpeg-turbo flex bison; do
+             libpixman libslirp zlib libpng libjpeg-turbo flex bison dtc; do
         pkg install -y "$p" || missing+=("$p")
     done
     # meson is not a Termux package; install it with pip.
