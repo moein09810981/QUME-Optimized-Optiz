@@ -1,3 +1,7 @@
+if not import('fs').exists(meson.project_source_root() / 'subprojects' / 'berkeley-testfloat-3' / 'meson.build')
+  # testfloat subproject not available (e.g. gitlab unreachable): skip fp tests
+  subdir_done()
+endif
 if 'CONFIG_TCG' not in config_all_accel
   subdir_done()
 endif
